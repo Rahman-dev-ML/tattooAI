@@ -1,24 +1,17 @@
-const USE_BFF = process.env.NEXT_PUBLIC_USE_BFF === '1'
 const DIRECT_API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 function generateUrl(): string {
-  if (USE_BFF) {
-    if (typeof window !== 'undefined') {
-      return `${window.location.origin}/api/tattoo/generate`
-    }
-    return '/api/tattoo/generate'
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/api/tattoo/generate`
   }
-  return `${DIRECT_API}/api/generate`
+  return '/api/tattoo/generate'
 }
 
 function generateCoupleUrl(): string {
-  if (USE_BFF) {
-    if (typeof window !== 'undefined') {
-      return `${window.location.origin}/api/tattoo/generate-couple`
-    }
-    return '/api/tattoo/generate-couple'
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/api/tattoo/generate-couple`
   }
-  return `${DIRECT_API}/api/generate-couple`
+  return '/api/tattoo/generate-couple'
 }
 
 const GENERATION_TIMEOUT_MS = 240_000
