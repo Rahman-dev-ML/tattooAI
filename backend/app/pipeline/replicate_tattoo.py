@@ -202,6 +202,12 @@ def _use_photo_convert_stencil() -> bool:
     return True
 
 
+def _log_prompt_bodies() -> bool:
+    """Never log full prompt text unless explicitly enabled."""
+    raw = os.environ.get("LOG_PROMPT_BODIES", "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 def _b64_image(image_bytes: bytes) -> str:
     return f"data:image/jpeg;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
 
@@ -1311,10 +1317,11 @@ async def generate_tattoo_concepts(
         for i in range(n)
     ]
     for i, p in enumerate(prompts):
-        print(f"\n{'='*60}")
         print(f"[TATTOO] variant {i}, seed {seeds[i]}, flow={flow_id}")
-        print(p)
-        print(f"{'='*60}\n")
+        if _log_prompt_bodies():
+            print(f"\n{'='*60}")
+            print(p)
+            print(f"{'='*60}\n")
 
     async with httpx.AsyncClient(limits=HTTP_LIMITS, http2=False) as client:
         # Optional: stencil (reference only) + local composite — not default; two-image
@@ -1330,7 +1337,8 @@ async def generate_tattoo_concepts(
             print(
                 f"[TATTOO] photo_convert STENCIL+COMPOSITE (style={style_key}, seed={stencil_seed})"
             )
-            print(f"[TATTOO] stencil prompt (trunc): {stencil_prompt[:400]}...")
+            if _log_prompt_bodies():
+                print(f"[TATTOO] stencil prompt (trunc): {stencil_prompt[:400]}...")
             st_blob, st_err = await _replicate_p_image_edit(
                 client, [reference_jpeg], stencil_prompt, stencil_seed
             )

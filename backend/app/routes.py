@@ -52,6 +52,13 @@ VALID_FLOWS = frozenset(
 
 _GEN_LIMIT = os.environ.get("GENERATE_RATE_LIMIT", "20/minute")
 _STATUS_LIMIT = os.environ.get("STATUS_RATE_LIMIT", "120/minute")
+_MAX_CONCURRENT_GENERATIONS = get_settings()["max_concurrent_generations"]
+_GENERATION_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_GENERATIONS)
+
+
+async def _run_with_generation_slot(awaitable):
+    async with _GENERATION_SEMAPHORE:
+        return await awaitable
 
 
 def _resolved_style(flow_id: str, answers: dict[str, Any]) -> str:
@@ -131,8 +138,8 @@ async def generate(
     if flow_id == "tattoo_fade":
         cap = settings["max_concepts_per_request"]
         n_fade = max(1, min(cap, int(num_concepts or 1)))
-        fade_concepts, fade_err = await generate_faded_tattoo(
-            image_bytes, answers, num_concepts=n_fade
+        fade_concepts, fade_err = await _run_with_generation_slot(
+            generate_faded_tattoo(image_bytes, answers, num_concepts=n_fade)
         )
         if fade_err or not fade_concepts:
             msg = fade_err or "Fade generation failed"
@@ -309,12 +316,14 @@ async def generate(
         # (including scar camouflage / overshadow, and scar transform when
         # SAM couldn't isolate the scar — caller falls back to the prompt's
         # tap-location hint).
-        concepts_raw, err = await generate_tattoo_concepts(
-            image_bytes,
-            flow_id,
-            answers,
-            num_concepts=n,
-            reference_jpeg=reference_jpeg,
+        concepts_raw, err = await _run_with_generation_slot(
+            generate_tattoo_concepts(
+                image_bytes,
+                flow_id,
+                answers,
+                num_concepts=n,
+                reference_jpeg=reference_jpeg,
+            )
         )
 
     if err or not concepts_raw:
@@ -449,7 +458,9 @@ async def generate_couple(
         jpeg_a = preprocess_image_to_jpeg(raw_a)
         jpeg_b = preprocess_image_to_jpeg(raw_b)
 
-    bundle, err = await generate_couple_preview(jpeg_a, jpeg_b, answers)
+    bundle, err = await _run_with_generation_slot(
+        generate_couple_preview(jpeg_a, jpeg_b, answers)
+    )
     if err or not bundle:
         msg = err or "Couple generation failed"
         status = 500

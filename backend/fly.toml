@@ -1,0 +1,35 @@
+app = "tattoo-ai-backend"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_ENV = "production"
+  PORT = "8080"
+  HOST = "0.0.0.0"
+  UVICORN_RELOAD = "0"
+  UVICORN_WORKERS = "2"
+  MAX_CONCURRENT_GENERATIONS = "8"
+  LOG_PROMPT_BODIES = "0"
+  REQUIRE_API_KEY = "true"
+  # Replace with your frontend domain before deploy.
+  CORS_ORIGINS = "https://your-frontend.vercel.app"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  auto_stop_machines = "stop"
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 40
+    hard_limit = 60
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "1gb"

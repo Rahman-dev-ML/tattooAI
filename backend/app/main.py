@@ -16,6 +16,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from .rate_limit import limiter
 from .routes import router
+from .config import get_settings
 
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
@@ -26,13 +27,22 @@ app = FastAPI(
     version="0.2.0",
 )
 
+_settings = get_settings()
+_cors_origins = [
+    o.strip() for o in _settings["cors_origins"].split(",") if o.strip()
+]
+if _settings["app_env"] == "production" and ("*" in _cors_origins or not _cors_origins):
+    raise RuntimeError(
+        "CORS_ORIGINS must be explicitly set in production; wildcard is not allowed."
+    )
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()],
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
