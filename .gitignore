@@ -1,0 +1,14 @@
+.env
+.env.local
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.Python
+venv/
+.venv/
+dist/
+*.log
+*.tsbuildinfo
+*.code-workspace
+backend/Untitled

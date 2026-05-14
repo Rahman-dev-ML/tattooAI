@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0c0e12;
+  --fg: #e8eaef;
+  --muted: #8b93a5;
+  --card: #12151c;
+  --border: #2a3142;
+}
+
+body {
+  @apply bg-ink-950 text-ink-100 antialiased min-h-screen;
+}
