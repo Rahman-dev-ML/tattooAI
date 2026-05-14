@@ -13,8 +13,8 @@ primary_region = "iad"
   MAX_CONCURRENT_GENERATIONS = "8"
   LOG_PROMPT_BODIES = "0"
   REQUIRE_API_KEY = "true"
-  # Replace with your frontend domain before deploy.
-  CORS_ORIGINS = "https://your-frontend.vercel.app"
+  # Set this to your actual Vercel URL after frontend deploy.
+  CORS_ORIGINS = "https://tattoo-ai.vercel.app,http://localhost:3000"
 
 [http_service]
   internal_port = 8080
