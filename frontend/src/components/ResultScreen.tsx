@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Bookmark, ChevronLeft, Heart, LayoutGrid, Loader2, Plus, Share2 } from 'lucide-react'
 import type { ConceptResult, FlowAnswers, FlowId, GenerateResponse } from '@/lib/types'
-import { generateCoupleTattoos, generateTattoos } from '@/lib/api'
+import { generateCoupleTattoos, generateTattoos, checkCredits } from '@/lib/api'
 import { saveConcept } from '@/lib/storage'
 import { BeforeAfterSlider } from './BeforeAfterSlider'
+import { PaymentScreen } from './PaymentScreen'
 
 export function ResultScreen({
   flowTitle,
@@ -36,6 +37,7 @@ export function ResultScreen({
   const [shareToast, setShareToast] = useState<string | null>(null)
   const [moreLoading, setMoreLoading] = useState(false)
   const [moreError, setMoreError] = useState<string | null>(null)
+  const [showPaywall, setShowPaywall] = useState(false)
   const isFade = flowId === 'tattoo_fade'
   const [showCompare, setShowCompare] = useState(flowId === 'scar_coverup' || isFade)
   const prevCount = useRef(data.concepts.length)
@@ -124,6 +126,13 @@ export function ResultScreen({
   }
 
   async function addOneVariation() {
+    // Check credits before making the call
+    const currentCredits = await checkCredits()
+    if (currentCredits <= 0) {
+      setShowPaywall(true)
+      return
+    }
+
     setMoreLoading(true)
     setMoreError(null)
     try {
@@ -140,6 +149,10 @@ export function ResultScreen({
           : await generateTattoos(bodyPhoto as File, flowId, coupleAnswers, 1, referenceImage ?? null)
       onAppendConcepts(more)
     } catch (e) {
+      if ((e as any)?.status === 402) {
+        setShowPaywall(true)
+        return
+      }
       setMoreError(e instanceof Error ? e.message : 'Could not add variation')
     } finally {
       setMoreLoading(false)
@@ -151,6 +164,10 @@ export function ResultScreen({
   const hintB = lastScore != null ? Math.min(98, lastScore + 4) : 96
 
   const cols = data.concepts.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2 lg:grid-cols-3'
+
+  if (showPaywall) {
+    return <PaymentScreen onBack={() => setShowPaywall(false)} />
+  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-10">
