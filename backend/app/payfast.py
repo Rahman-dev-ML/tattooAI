@@ -85,6 +85,7 @@ def build_checkout_form(
         "CURRENCY_CODE": "PKR",
         "VERSION": "MERCHANT-CART-0.1",
         "PROCCODE": "00",
+        "PAYMENT_METHOD": "CC",
         "SIGNATURE": f"TATTOO-{uuid.uuid4().hex[:8]}",
     }
 
