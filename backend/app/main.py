@@ -16,6 +16,8 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from .rate_limit import limiter
 from .routes import router
+from .payment_routes import payment_router
+from .database import init_db
 from .config import get_settings
 
 env_path = Path(__file__).resolve().parent.parent / ".env"
@@ -46,10 +48,16 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
-    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining"],
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-Credits-Remaining"],
 )
 
 app.include_router(router)
+app.include_router(payment_router)
+
+
+@app.on_event("startup")
+async def startup():
+    await init_db()
 
 
 @app.get("/health")

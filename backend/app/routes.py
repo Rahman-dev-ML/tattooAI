@@ -19,6 +19,7 @@ import base64 as _b64
 
 from .config import get_settings
 from .deps_auth import verify_service_key
+from . import database as db
 from .pipeline.fit_score import advisory_score_for_concept, compute_fit
 from .pipeline.flux_inpaint import (
     build_scar_transform_mask,
@@ -98,7 +99,22 @@ async def generate(
     num_concepts: int = Form(1),
     reference_image: Optional[UploadFile] = File(None),
     _: bool = Depends(verify_service_key),
+    x_device_id: Optional[str] = None,
 ):
+    # Extract device ID from header manually (FastAPI Header() doesn't mix well with Depends)
+    x_device_id = request.headers.get("X-Device-ID")
+
+    # Credit check — deduct before running expensive AI call
+    credits_remaining: Optional[int] = None
+    if x_device_id:
+        credits_remaining = await db.deduct_credit(x_device_id)
+        if credits_remaining == -1:
+            raise HTTPException(
+                status_code=402,
+                detail="No credits remaining. Purchase more to continue.",
+                headers={"X-Credits-Remaining": "0"},
+            )
+
     if flow_id not in VALID_FLOWS:
         raise HTTPException(
             status_code=400,
@@ -174,6 +190,9 @@ async def generate(
                 }
             )
 
+        fade_headers = {}
+        if credits_remaining is not None:
+            fade_headers["X-Credits-Remaining"] = str(credits_remaining)
         return JSONResponse(
             {
                 "flow_id": flow_id,
@@ -191,7 +210,8 @@ async def generate(
                     "depends on placement, sun exposure, skin type and aftercare."
                 ),
                 "replicate_calls": len(concepts_out),
-            }
+            },
+            headers=fade_headers,
         )
 
     # Scar segmentation (Tier B): for the scar_coverup flow we run SAM-2
@@ -402,6 +422,9 @@ async def generate(
             }
         )
 
+    gen_headers = {}
+    if credits_remaining is not None:
+        gen_headers["X-Credits-Remaining"] = str(credits_remaining)
     return JSONResponse(
         {
             "flow_id": flow_id,
@@ -409,7 +432,8 @@ async def generate(
             "fit": fit,
             "disclaimer": "Visual simulation for planning only — not medical advice.",
             "replicate_calls": len(concepts_out),
-        }
+        },
+        headers=gen_headers,
     )
 
 
@@ -422,6 +446,17 @@ async def generate_couple(
     image_b: UploadFile | None = File(None),
     _: bool = Depends(verify_service_key),
 ):
+    # Credit check
+    x_device_id = request.headers.get("X-Device-ID")
+    couple_credits_remaining: Optional[int] = None
+    if x_device_id:
+        couple_credits_remaining = await db.deduct_credit(x_device_id)
+        if couple_credits_remaining == -1:
+            raise HTTPException(
+                status_code=402,
+                detail="No credits remaining. Purchase more to continue.",
+                headers={"X-Credits-Remaining": "0"},
+            )
     if not REPLICATE_API_TOKEN or len(REPLICATE_API_TOKEN) < 10:
         raise HTTPException(
             status_code=503,
@@ -483,6 +518,9 @@ async def generate_couple(
     fit_b = compute_fit(region_b, cov, style_b)
     pair_score = int(round((fit_a["score"] + fit_b["score"]) / 2.0))
 
+    couple_headers = {}
+    if couple_credits_remaining is not None:
+        couple_headers["X-Credits-Remaining"] = str(couple_credits_remaining)
     return JSONResponse(
         {
             "flow_id": "couple_tattoo",
@@ -520,7 +558,8 @@ async def generate_couple(
                 "pair_image_base64": bundle["pair_image_base64"],
                 "media_type": bundle.get("media_type", "image/jpeg"),
             },
-        }
+        },
+        headers=couple_headers,
     )
 
 

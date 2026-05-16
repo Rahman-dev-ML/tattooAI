@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-/**
- * Server-side proxy: browser never sees TATTOO_SERVICE_KEY.
- * Set TATTOO_BACKEND_URL (e.g. http://127.0.0.1:8000) and optional TATTOO_SERVICE_KEY.
- * Enable from the client with NEXT_PUBLIC_USE_BFF=1.
- */
 export async function POST(req: NextRequest) {
   const backend = process.env.TATTOO_BACKEND_URL
   if (!backend) {
@@ -19,6 +14,10 @@ export async function POST(req: NextRequest) {
   const headers: Record<string, string> = {}
   if (key) headers['X-API-Key'] = key
 
+  // Forward device ID from browser so backend can track credits
+  const deviceId = req.headers.get('X-Device-ID')
+  if (deviceId) headers['X-Device-ID'] = deviceId
+
   const res = await fetch(`${backend.replace(/\/$/, '')}/api/generate`, {
     method: 'POST',
     body: form,
@@ -26,8 +25,11 @@ export async function POST(req: NextRequest) {
   })
 
   const text = await res.text()
-  return new NextResponse(text, {
-    status: res.status,
-    headers: { 'Content-Type': res.headers.get('Content-Type') || 'application/json' },
-  })
+  const responseHeaders: Record<string, string> = {
+    'Content-Type': res.headers.get('Content-Type') || 'application/json',
+  }
+  const creditsHeader = res.headers.get('X-Credits-Remaining')
+  if (creditsHeader !== null) responseHeaders['X-Credits-Remaining'] = creditsHeader
+
+  return new NextResponse(text, { status: res.status, headers: responseHeaders })
 }

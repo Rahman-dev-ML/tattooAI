@@ -14,6 +14,9 @@ export async function POST(req: NextRequest) {
   const headers: Record<string, string> = {}
   if (key) headers['X-API-Key'] = key
 
+  const deviceId = req.headers.get('X-Device-ID')
+  if (deviceId) headers['X-Device-ID'] = deviceId
+
   const res = await fetch(`${backend.replace(/\/$/, '')}/api/generate-couple`, {
     method: 'POST',
     body: form,
@@ -21,8 +24,11 @@ export async function POST(req: NextRequest) {
   })
 
   const text = await res.text()
-  return new NextResponse(text, {
-    status: res.status,
-    headers: { 'Content-Type': res.headers.get('Content-Type') || 'application/json' },
-  })
+  const responseHeaders: Record<string, string> = {
+    'Content-Type': res.headers.get('Content-Type') || 'application/json',
+  }
+  const creditsHeader = res.headers.get('X-Credits-Remaining')
+  if (creditsHeader !== null) responseHeaders['X-Credits-Remaining'] = creditsHeader
+
+  return new NextResponse(text, { status: res.status, headers: responseHeaders })
 }

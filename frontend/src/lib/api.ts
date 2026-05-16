@@ -1,5 +1,62 @@
 const DIRECT_API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+export interface PaymentSessionResponse {
+  checkout_url: string
+  form_data: Record<string, string>
+  basket_id: string
+}
+
+export function getDeviceId(): string {
+  const KEY = 'tattoo-device-id'
+  if (typeof window === 'undefined') return 'ssr'
+  let id = localStorage.getItem(KEY)
+  if (!id) {
+    id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    localStorage.setItem(KEY, id)
+  }
+  return id
+}
+
+export async function checkCredits(): Promise<number> {
+  try {
+    const res = await fetch(`${DIRECT_API}/api/credits`, {
+      headers: { 'X-Device-ID': getDeviceId() },
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!res.ok) return 2
+    const data = await res.json()
+    return data.credits ?? 2
+  } catch {
+    return 2
+  }
+}
+
+export async function initiatePayment(): Promise<PaymentSessionResponse> {
+  const res = await fetch(`${DIRECT_API}/api/payment/initiate`, {
+    method: 'POST',
+    headers: { 'X-Device-ID': getDeviceId() },
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || 'Payment initiation failed')
+  return data
+}
+
+export function redirectToPayFast(checkoutUrl: string, formData: Record<string, string>) {
+  const form = document.createElement('form')
+  form.method = 'POST'
+  form.action = checkoutUrl
+  form.style.display = 'none'
+  for (const [key, value] of Object.entries(formData)) {
+    const input = document.createElement('input')
+    input.type = 'hidden'
+    input.name = key
+    input.value = value
+    form.appendChild(input)
+  }
+  document.body.appendChild(form)
+  form.submit()
+}
+
 function generateUrl(): string {
   if (typeof window !== 'undefined') {
     return `${window.location.origin}/api/tattoo/generate`
@@ -42,14 +99,20 @@ export async function generateTattoos(
       method: 'POST',
       body: form,
       signal: controller.signal,
+      headers: { 'X-Device-ID': getDeviceId() },
     })
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error((err as { detail?: string }).detail || `Error ${res.status}`)
+      const e = new Error((err as { detail?: string }).detail || `Error ${res.status}`)
+      ;(e as any).status = res.status
+      throw e
     }
 
-    return res.json() as Promise<GenerateResponse>
+    const data = await res.json() as GenerateResponse
+    const creditsHeader = res.headers.get('X-Credits-Remaining')
+    if (creditsHeader !== null) (data as any).creditsRemaining = parseInt(creditsHeader, 10)
+    return data
   } finally {
     clearTimeout(timeoutId)
   }
@@ -75,14 +138,20 @@ export async function generateCoupleTattoos(
       method: 'POST',
       body: form,
       signal: controller.signal,
+      headers: { 'X-Device-ID': getDeviceId() },
     })
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error((err as { detail?: string }).detail || `Error ${res.status}`)
+      const e = new Error((err as { detail?: string }).detail || `Error ${res.status}`)
+      ;(e as any).status = res.status
+      throw e
     }
 
-    return res.json() as Promise<GenerateResponse>
+    const data = await res.json() as GenerateResponse
+    const creditsHeader = res.headers.get('X-Credits-Remaining')
+    if (creditsHeader !== null) (data as any).creditsRemaining = parseInt(creditsHeader, 10)
+    return data
   } finally {
     clearTimeout(timeoutId)
   }

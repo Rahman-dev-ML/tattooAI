@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRight, Heart, Sparkles } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowRight, Heart, Sparkles, CheckCircle2 } from 'lucide-react'
 import { HOME_FLOW_ORDER } from '@/lib/flowConfigs'
 import { HealingJourney } from './HealingJourney'
 
@@ -14,8 +15,31 @@ const STRIP = [
 ]
 
 export function HomePage() {
+  const [paymentBanner, setPaymentBanner] = useState<{ credits: number } | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const status = params.get('payment')
+    if (status === 'success') {
+      const credits = parseInt(params.get('credits') || '5', 10)
+      setPaymentBanner({ credits })
+      window.history.replaceState({}, '', window.location.pathname)
+      setTimeout(() => setPaymentBanner(null), 6000)
+    }
+  }, [])
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-12 md:py-20">
+      {paymentBanner && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 
+                        rounded-2xl border border-accent/30 bg-ink-900 px-5 py-3 shadow-2xl">
+          <CheckCircle2 className="w-5 h-5 text-accent shrink-0" />
+          <span className="text-sm text-ink-100 font-medium">
+            Payment successful — {paymentBanner.credits} credits added!
+          </span>
+        </div>
+      )}
       <div className="text-center mb-14">
         <p className="text-accent text-sm font-medium tracking-wide uppercase mb-3">
           Tattoo Advisor

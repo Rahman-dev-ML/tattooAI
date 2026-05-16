@@ -5,9 +5,10 @@ import Link from 'next/link'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import type { FlowAnswers, FlowId, GenerateResponse } from '@/lib/types'
 import { FLOW_CONFIGS, getActiveSteps } from '@/lib/flowConfigs'
-import { generateCoupleTattoos, generateTattoos } from '@/lib/api'
+import { generateCoupleTattoos, generateTattoos, checkCredits, getDeviceId } from '@/lib/api'
 import { ResultScreen } from '@/components/ResultScreen'
 import { ScarMarker, type ScarMark } from '@/components/ScarMarker'
+import { PaymentScreen } from '@/components/PaymentScreen'
 
 export function FlowWizard({ flowId }: { flowId: FlowId }) {
   const config = FLOW_CONFIGS[flowId]
@@ -22,6 +23,15 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<GenerateResponse | null>(null)
+  const [showPaywall, setShowPaywall] = useState(false)
+  const [credits, setCredits] = useState<number | null>(null)
+
+  // Load credits on mount so we know the balance before user hits Generate
+  useEffect(() => {
+    // Ensure device ID exists in localStorage
+    getDeviceId()
+    checkCredits().then(setCredits)
+  }, [])
 
   const uploadsOnly = config.uploadsInStepsOnly === true
   const hasBodyPhoto = !uploadsOnly && file !== null
@@ -179,6 +189,13 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
       setError('Upload a body photo first.')
       return
     }
+
+    // Check credits before calling API
+    if (credits !== null && credits <= 0) {
+      setShowPaywall(true)
+      return
+    }
+
     setLoading(true)
     setError(null)
     try {
@@ -201,12 +218,29 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
               1,
               flowId === 'photo_convert' ? referenceFile : null
             )
+
+      // Update local credits count from response header
+      if ((data as any).creditsRemaining !== undefined) {
+        setCredits((data as any).creditsRemaining)
+      } else if (credits !== null) {
+        setCredits(Math.max(0, credits - 1))
+      }
+
       setResult(data)
     } catch (e) {
+      if ((e as any)?.status === 402) {
+        setCredits(0)
+        setShowPaywall(true)
+        return
+      }
       setError(e instanceof Error ? e.message : 'Generation failed')
     } finally {
       setLoading(false)
     }
+  }
+
+  if (showPaywall) {
+    return <PaymentScreen onBack={() => setShowPaywall(false)} />
   }
 
   const isSplitMode = flowId === 'couple_tattoo' && String(raw.couple_mode || '') === 'complementary_split'
@@ -255,7 +289,18 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
       <Link href="/" className="text-sm text-ink-100/50 hover:text-ink-100 mb-6 inline-block">
         ← Home
       </Link>
-      <h1 className="font-display text-3xl text-ink-100 mb-1">{config.title}</h1>
+      <div className="flex items-start justify-between mb-1">
+        <h1 className="font-display text-3xl text-ink-100">{config.title}</h1>
+        {credits !== null && (
+          <span className={`text-xs px-2.5 py-1 rounded-full border font-medium mt-1 ${
+            credits <= 0
+              ? 'border-red-500/30 bg-red-500/10 text-red-400'
+              : 'border-border bg-ink-800 text-ink-100/60'
+          }`}>
+            {credits <= 0 ? 'No credits' : `${credits} credit${credits === 1 ? '' : 's'} left`}
+          </span>
+        )}
+      </div>
       <p className="text-ink-100/55 text-sm mb-8">{config.description}</p>
 
       {flowId === 'scar_coverup' && raw.scar_type === 'self_harm' && (
