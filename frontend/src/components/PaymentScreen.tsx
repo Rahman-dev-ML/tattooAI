@@ -43,23 +43,23 @@ export function PaymentScreen({ onBack }: PaymentScreenProps) {
           Free previews used up
         </h2>
         <p className="text-ink-100/55 text-sm mb-8">
-          You&apos;ve used your 2 free generations. Get 5 more concepts for less than a coffee.
+          You&apos;ve used your 2 free generations. Get 5 more concepts for $1.
         </p>
 
         {/* Price */}
         <div className="rounded-2xl border border-border bg-ink-800 p-5 mb-6 text-center">
           <div className="text-4xl font-bold text-ink-100 mb-0.5">
-            280 <span className="text-xl text-ink-100/55">PKR</span>
+            $1 <span className="text-xl text-ink-100/55">USD</span>
           </div>
-          <div className="text-xs text-ink-100/40">≈ $1 · One-time · No subscription</div>
+          <div className="text-xs text-ink-100/40">One-time · No subscription · No account needed</div>
         </div>
 
         {/* Features */}
         <ul className="space-y-3 mb-8">
           {[
             '5 AI-generated tattoo concepts',
-            'All flows — cover-up, fade, couple, and more',
-            'Pay via Card, JazzCash or Easypaisa',
+            'All flows — cover-up, fade, couple & more',
+            'Pay securely via Visa or Mastercard',
           ].map((text) => (
             <li key={text} className="flex items-start gap-3">
               <CheckCircle2 className="w-4 h-4 text-accent shrink-0 mt-0.5" />
@@ -84,16 +84,16 @@ export function PaymentScreen({ onBack }: PaymentScreenProps) {
           {loading ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              Connecting to PayFast…
+              Connecting to payment…
             </>
           ) : (
-            'Pay 280 PKR with PayFast'
+            'Pay $1 — Get 5 concepts'
           )}
         </button>
 
         <div className="mt-4 flex items-center justify-center gap-1.5 text-ink-100/30 text-xs">
           <Lock className="w-3 h-3" />
-          Secured by PayFast — Card, JazzCash, Easypaisa
+          Secured · Visa &amp; Mastercard accepted
         </div>
       </div>
     </div>
