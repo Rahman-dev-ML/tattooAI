@@ -101,13 +101,18 @@ async def generate(
     _: bool = Depends(verify_service_key),
     x_device_id: Optional[str] = None,
 ):
-    # Extract device ID from header manually (FastAPI Header() doesn't mix well with Depends)
+    # Extract device ID and client IP from headers
     x_device_id = request.headers.get("X-Device-ID")
+    client_ip = (
+        request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or request.headers.get("X-Real-IP", "")
+        or (request.client.host if request.client else "")
+    )
 
     # Credit check — deduct before running expensive AI call
     credits_remaining: Optional[int] = None
     if x_device_id:
-        credits_remaining = await db.deduct_credit(x_device_id)
+        credits_remaining = await db.deduct_credit(x_device_id, client_ip)
         if credits_remaining == -1:
             raise HTTPException(
                 status_code=402,
@@ -448,9 +453,14 @@ async def generate_couple(
 ):
     # Credit check
     x_device_id = request.headers.get("X-Device-ID")
+    client_ip = (
+        request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or request.headers.get("X-Real-IP", "")
+        or (request.client.host if request.client else "")
+    )
     couple_credits_remaining: Optional[int] = None
     if x_device_id:
-        couple_credits_remaining = await db.deduct_credit(x_device_id)
+        couple_credits_remaining = await db.deduct_credit(x_device_id, client_ip)
         if couple_credits_remaining == -1:
             raise HTTPException(
                 status_code=402,

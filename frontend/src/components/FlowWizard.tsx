@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import type { FlowAnswers, FlowId, GenerateResponse } from '@/lib/types'
 import { FLOW_CONFIGS, getActiveSteps } from '@/lib/flowConfigs'
-import { generateCoupleTattoos, generateTattoos, checkCredits, getDeviceId } from '@/lib/api'
+import { generateCoupleTattoos, generateTattoos, checkCredits, getDeviceId, initDeviceId } from '@/lib/api'
 import { ResultScreen } from '@/components/ResultScreen'
 import { ScarMarker, type ScarMark } from '@/components/ScarMarker'
 import { PaymentScreen } from '@/components/PaymentScreen'
@@ -26,11 +26,9 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
   const [showPaywall, setShowPaywall] = useState(false)
   const [credits, setCredits] = useState<number | null>(null)
 
-  // Load credits on mount so we know the balance before user hits Generate
+  // Initialise FingerprintJS fingerprint, then load credits
   useEffect(() => {
-    // Ensure device ID exists in localStorage
-    getDeviceId()
-    checkCredits().then(setCredits)
+    initDeviceId().then(() => checkCredits().then(setCredits))
   }, [])
 
   const uploadsOnly = config.uploadsInStepsOnly === true

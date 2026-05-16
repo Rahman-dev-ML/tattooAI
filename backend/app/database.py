@@ -22,6 +22,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS devices (
                 device_id TEXT PRIMARY KEY,
                 credits INTEGER NOT NULL DEFAULT 2,
+                ip_address TEXT,
                 created_at REAL NOT NULL,
                 last_payment_at REAL
             )
@@ -38,37 +39,76 @@ async def init_db():
                 FOREIGN KEY (device_id) REFERENCES devices(device_id)
             )
         """)
+        # Migration: add ip_address column if it doesn't exist yet
+        try:
+            await db.execute("ALTER TABLE devices ADD COLUMN ip_address TEXT")
+            await db.commit()
+        except Exception:
+            pass  # Column already exists
         await db.commit()
     print(f"[DB] Initialized at {DB_PATH}")
 
 
-async def get_or_create_device(device_id: str) -> int:
-    """Returns current credits. Creates device with FREE_CREDITS if new."""
+async def _ip_has_depleted_devices(ip: str, exclude_device_id: str) -> bool:
+    """Returns True if this IP already has 2+ different devices with 0 credits (not paid)."""
+    if not ip:
+        return False
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """SELECT COUNT(*) FROM devices
+               WHERE ip_address = ? AND device_id != ? AND credits = 0 AND last_payment_at IS NULL""",
+            (ip, exclude_device_id)
+        )
+        row = await cursor.fetchone()
+        return (row[0] if row else 0) >= 2
+
+
+async def get_or_create_device(device_id: str, ip_address: str = "") -> int:
+    """Returns current credits. Creates device with FREE_CREDITS if new.
+    If the IP has already had 2+ depleted free-trial devices, starts at 0."""
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("SELECT credits FROM devices WHERE device_id = ?", (device_id,))
         row = await cursor.fetchone()
         if row:
+            # Update IP if we have one and it wasn't stored before
+            if ip_address:
+                await db.execute(
+                    "UPDATE devices SET ip_address = ? WHERE device_id = ? AND ip_address IS NULL",
+                    (ip_address, device_id)
+                )
+                await db.commit()
             return row[0]
+
+        # New device — check IP to decide starting credits
+        starting_credits = FREE_CREDITS
+        if ip_address and await _ip_has_depleted_devices(ip_address, device_id):
+            starting_credits = 0
+            print(f"[DB] IP {ip_address} already has depleted devices — new device starts at 0")
+
         await db.execute(
-            "INSERT INTO devices (device_id, credits, created_at) VALUES (?, ?, ?)",
-            (device_id, FREE_CREDITS, time.time())
+            "INSERT INTO devices (device_id, credits, ip_address, created_at) VALUES (?, ?, ?, ?)",
+            (device_id, starting_credits, ip_address or None, time.time())
         )
         await db.commit()
-        return FREE_CREDITS
+        return starting_credits
 
 
-async def deduct_credit(device_id: str) -> int:
+async def deduct_credit(device_id: str, ip_address: str = "") -> int:
     """Deducts 1 credit. Returns remaining credits, or -1 if insufficient."""
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("SELECT credits FROM devices WHERE device_id = ?", (device_id,))
         row = await cursor.fetchone()
         if not row:
+            # New device seen at deduct time — apply same IP check
+            starting_credits = FREE_CREDITS
+            if ip_address and await _ip_has_depleted_devices(ip_address, device_id):
+                starting_credits = 0
             await db.execute(
-                "INSERT INTO devices (device_id, credits, created_at) VALUES (?, ?, ?)",
-                (device_id, FREE_CREDITS, time.time())
+                "INSERT INTO devices (device_id, credits, ip_address, created_at) VALUES (?, ?, ?, ?)",
+                (device_id, starting_credits, ip_address or None, time.time())
             )
             await db.commit()
-            row = (FREE_CREDITS,)
+            row = (starting_credits,)
 
         current = row[0]
         if current <= 0:

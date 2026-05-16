@@ -1,20 +1,56 @@
 const DIRECT_API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+const DEVICE_KEY = 'tattoo-device-id'
+const FP_INITIALIZED_KEY = 'tattoo-fp-init'
+
 export interface PaymentSessionResponse {
   checkout_url: string
   form_data: Record<string, string>
   basket_id: string
 }
 
+/**
+ * Synchronous: reads cached device ID from localStorage.
+ * Falls back to a random UUID on very first visit (before FP loads).
+ */
 export function getDeviceId(): string {
-  const KEY = 'tattoo-device-id'
   if (typeof window === 'undefined') return 'ssr'
-  let id = localStorage.getItem(KEY)
+  let id = localStorage.getItem(DEVICE_KEY)
   if (!id) {
     id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    localStorage.setItem(KEY, id)
+    localStorage.setItem(DEVICE_KEY, id)
   }
   return id
+}
+
+/**
+ * Async: generates a stable FingerprintJS fingerprint and overwrites the
+ * localStorage device ID with it. Called once on app load.
+ * After this, getDeviceId() returns the fingerprint-based ID — survives
+ * localStorage clears because the same fingerprint is regenerated from
+ * browser hardware/software attributes.
+ */
+export async function initDeviceId(): Promise<string> {
+  if (typeof window === 'undefined') return 'ssr'
+
+  // Only regenerate if not already set via FP (avoid re-importing every render)
+  if (localStorage.getItem(FP_INITIALIZED_KEY) === '1') {
+    return getDeviceId()
+  }
+
+  try {
+    const FingerprintJS = (await import('@fingerprintjs/fingerprintjs')).default
+    const fp = await FingerprintJS.load()
+    const result = await fp.get()
+    const fpId = `fp-${result.visitorId}`
+    localStorage.setItem(DEVICE_KEY, fpId)
+    localStorage.setItem(FP_INITIALIZED_KEY, '1')
+    return fpId
+  } catch {
+    // FP failed (ad blocker, private mode restriction) — keep UUID fallback
+    localStorage.setItem(FP_INITIALIZED_KEY, '1')
+    return getDeviceId()
+  }
 }
 
 export async function checkCredits(): Promise<number> {
