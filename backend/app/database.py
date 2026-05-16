@@ -50,7 +50,8 @@ async def init_db():
 
 
 async def _ip_has_depleted_devices(ip: str, exclude_device_id: str) -> bool:
-    """Returns True if this IP already has 2+ different devices with 0 credits (not paid)."""
+    """Returns True if this IP already has any device with 0 credits (not paid).
+    Threshold = 1: first device per IP gets free trial, any subsequent browser/device does not."""
     if not ip:
         return False
     async with aiosqlite.connect(DB_PATH) as db:
@@ -60,7 +61,7 @@ async def _ip_has_depleted_devices(ip: str, exclude_device_id: str) -> bool:
             (ip, exclude_device_id)
         )
         row = await cursor.fetchone()
-        return (row[0] if row else 0) >= 2
+        return (row[0] if row else 0) >= 1
 
 
 async def get_or_create_device(device_id: str, ip_address: str = "") -> int:

@@ -14,9 +14,13 @@ const crimson = Crimson_Pro({
 })
 
 export const metadata: Metadata = {
-  title: 'Tattoo Advisor — Preview before you commit',
+  title: 'Tattoo Canvas AI — Design before you commit',
   description:
-    'AI tattoo ideas with virtual body preview, fit guidance, and compare — visual planning only, not medical advice.',
+    'AI tattoo concepts with virtual body preview, fit guidance, and compare — visual planning only, not medical advice.',
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/favicon.ico',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
