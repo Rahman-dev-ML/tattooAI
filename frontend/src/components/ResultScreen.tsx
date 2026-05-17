@@ -126,8 +126,13 @@ export function ResultScreen({
         setShareToast('Shared!')
       } else {
         // Fallback: copy link to clipboard
-        await navigator.clipboard.writeText(shareText)
-        setShareToast('Link copied — paste to share!')
+        try {
+          await window.navigator.clipboard.writeText(shareText)
+          setShareToast('Link copied — paste to share!')
+        } catch {
+          setShareToast('Could not share — try downloading instead')
+        }
+        return
       }
     } catch {
       setShareToast('Could not share — try downloading instead')
