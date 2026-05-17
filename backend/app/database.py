@@ -167,3 +167,13 @@ async def get_device_id_by_basket(basket_id: str) -> str | None:
         cursor = await db.execute("SELECT device_id FROM transactions WHERE basket_id = ?", (basket_id,))
         row = await cursor.fetchone()
         return row[0] if row else None
+
+
+async def is_transaction_fulfilled(basket_id: str) -> bool:
+    """Returns True if this transaction (Stripe session ID) has already been credited."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT status FROM transactions WHERE basket_id = ?", (basket_id,)
+        )
+        row = await cursor.fetchone()
+        return bool(row and row[0] == "success")

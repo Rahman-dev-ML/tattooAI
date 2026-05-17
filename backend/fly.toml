@@ -13,10 +13,10 @@ primary_region = "iad"
   MAX_CONCURRENT_GENERATIONS = "8"
   LOG_PROMPT_BODIES = "0"
   REQUIRE_API_KEY = "true"
-  CORS_ORIGINS = "https://tattoo-ai-flax.vercel.app,http://localhost:3000"
-  FRONTEND_URL = "https://tattoo-ai-flax.vercel.app"
+  CORS_ORIGINS = "https://tattoovisionai.com,https://www.tattoovisionai.com,https://tattoo-ai-flax.vercel.app,http://localhost:3000"
+  FRONTEND_URL = "https://tattoovisionai.com"
   BACKEND_URL = "https://tattoo-ai-backend.fly.dev"
-  PAYFAST_BASE_URL = "https://ipg1.apps.net.pk/Ecommerce/api/Transaction"
+  STRIPE_PRICE_ID = "price_1TYBfY1omP2DLjOumzU8UF6P"
   DB_PATH = "/data/tattoo.db"
 
 [mounts]

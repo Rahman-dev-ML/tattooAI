@@ -5,8 +5,7 @@ const FP_INITIALIZED_KEY = 'tattoo-fp-init'
 
 export interface PaymentSessionResponse {
   checkout_url: string
-  form_data: Record<string, string>
-  basket_id: string
+  session_id: string
 }
 
 /**
@@ -77,20 +76,8 @@ export async function initiatePayment(): Promise<PaymentSessionResponse> {
   return data
 }
 
-export function redirectToPayFast(checkoutUrl: string, formData: Record<string, string>) {
-  const form = document.createElement('form')
-  form.method = 'POST'
-  form.action = checkoutUrl
-  form.style.display = 'none'
-  for (const [key, value] of Object.entries(formData)) {
-    const input = document.createElement('input')
-    input.type = 'hidden'
-    input.name = key
-    input.value = value
-    form.appendChild(input)
-  }
-  document.body.appendChild(form)
-  form.submit()
+export function redirectToStripe(checkoutUrl: string) {
+  window.location.href = checkoutUrl
 }
 
 function generateUrl(): string {

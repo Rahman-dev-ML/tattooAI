@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Loader2, Lock, Zap, CheckCircle2 } from 'lucide-react'
-import { initiatePayment, redirectToPayFast } from '@/lib/api'
+import { initiatePayment, redirectToStripe } from '@/lib/api'
 
 interface PaymentScreenProps {
   onBack: () => void
@@ -17,7 +17,7 @@ export function PaymentScreen({ onBack }: PaymentScreenProps) {
     setLoading(true)
     try {
       const session = await initiatePayment()
-      redirectToPayFast(session.checkout_url, session.form_data)
+      redirectToStripe(session.checkout_url)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not start payment')
       setLoading(false)

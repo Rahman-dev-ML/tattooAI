@@ -1,15 +1,16 @@
 """
-Payment API routes: PayFast hosted checkout + credit management.
-Flow: Frontend POSTs to /api/payment/initiate → gets PayFast form data →
-browser POSTs form to PayFast → user pays → PayFast redirects to callback URL →
-we add credits and redirect user back to the app.
+Payment API routes: Stripe Checkout + credit management.
+Flow: Frontend POSTs to /api/payment/initiate → gets Stripe checkout URL →
+browser redirects to Stripe → user pays → Stripe redirects to our callback URL →
+we verify with Stripe API, add credits, and redirect back to the app.
 """
 import os
-from fastapi import APIRouter, HTTPException, Header, Request, Form
-from fastapi.responses import RedirectResponse, PlainTextResponse
+import stripe
+from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi.responses import RedirectResponse
 
 from . import database as db
-from . import payfast
+from . import stripe_payment as sp
 
 payment_router = APIRouter()
 
@@ -36,84 +37,116 @@ async def initiate_payment(
     request: Request,
     x_device_id: str = Header(..., alias="X-Device-ID"),
 ):
-    """Create a payment session and return form data for PayFast hosted checkout."""
-    basket_id = payfast.generate_basket_id()
+    """Create a Stripe Checkout Session and return the hosted checkout URL."""
+    success_url = (
+        f"{BACKEND_URL}/api/payment/callback"
+        f"?session_id={{CHECKOUT_SESSION_ID}}&device_id={x_device_id}"
+    )
+    cancel_url = f"{FRONTEND_URL}?payment=cancelled"
 
-    token = await payfast.get_access_token(basket_id)
-    if not token:
+    try:
+        session = sp.create_checkout_session(
+            device_id=x_device_id,
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+    except stripe.StripeError as e:
+        print(f"[Stripe] Session creation failed: {e}")
         raise HTTPException(status_code=502, detail="Could not connect to payment gateway")
 
-    await db.create_transaction(x_device_id, basket_id, payfast.TRANSACTION_AMOUNT)
+    await db.create_transaction(x_device_id, session.id, 100)  # $1.00 in cents
 
-    success_url = f"{BACKEND_URL}/api/payment/callback?status=success&basket_id={basket_id}&device_id={x_device_id}"
-    failure_url = f"{BACKEND_URL}/api/payment/callback?status=failed&basket_id={basket_id}&device_id={x_device_id}"
-    ipn_url = f"{BACKEND_URL}/api/payment/ipn"
-
-    form_data = payfast.build_checkout_form(
-        token=token,
-        basket_id=basket_id,
-        success_url=success_url,
-        failure_url=failure_url,
-        ipn_url=ipn_url,
-    )
-
-    return {
-        "checkout_url": f"{payfast.PAYFAST_BASE_URL}/PostTransaction",
-        "form_data": form_data,
-        "basket_id": basket_id,
-    }
+    print(f"[Stripe] Session created: {session.id} for device {x_device_id}")
+    return {"checkout_url": session.url, "session_id": session.id}
 
 
 @payment_router.get("/api/payment/callback")
-async def payment_callback(
-    status: str = "failed",
-    basket_id: str = "",
-    device_id: str = "",
-):
-    """PayFast redirects here after payment. Add credits and redirect user back to app."""
-    if status == "success" and basket_id and device_id:
-        await db.update_transaction(basket_id, basket_id, "success")
-        new_credits = await db.add_credits(device_id, db.CREDITS_PER_PURCHASE)
-        print(f"[Payment] Success: device={device_id}, basket={basket_id}, credits={new_credits}")
-        redirect_url = f"{FRONTEND_URL}?payment=success&credits={new_credits}"
-    else:
-        if basket_id:
-            await db.update_transaction(basket_id, basket_id, f"failed:{status}")
-        print(f"[Payment] Failed: device={device_id}, basket={basket_id}, status={status}")
-        redirect_url = f"{FRONTEND_URL}?payment=failed"
+async def payment_callback(session_id: str = "", device_id: str = ""):
+    """
+    Stripe redirects here after payment. We verify the session with Stripe
+    (not just trusting the URL params), then add credits and redirect to the app.
+    """
+    if not session_id or not device_id:
+        return RedirectResponse(url=f"{FRONTEND_URL}?payment=failed", status_code=302)
 
-    return RedirectResponse(url=redirect_url, status_code=302)
+    try:
+        session = sp.retrieve_session(session_id)
+    except stripe.StripeError as e:
+        print(f"[Stripe] Could not retrieve session {session_id}: {e}")
+        return RedirectResponse(url=f"{FRONTEND_URL}?payment=failed", status_code=302)
 
+    if session.payment_status == "paid":
+        # Double-check device_id matches metadata stored at session creation
+        meta_device = session.metadata.get("device_id", "") if session.metadata else ""
+        if meta_device and meta_device != device_id:
+            print(f"[Stripe] Device mismatch: meta={meta_device} vs param={device_id}")
+            return RedirectResponse(url=f"{FRONTEND_URL}?payment=failed", status_code=302)
 
-@payment_router.post("/api/payment/ipn")
-async def payment_ipn(
-    request: Request,
-    basket_id: str = Form(""),
-    err_code: str = Form(""),
-    err_msg: str = Form(""),
-    transaction_id: str = Form(""),
-    validation_hash: str = Form(""),
-    order_date: str = Form(""),
-):
-    """PayFast IPN: verify hash, add credits if err_code=000. Must return 200 OK."""
-    if not basket_id or not err_code or not validation_hash:
-        print(f"[IPN] Missing params: basket_id={basket_id}, err_code={err_code}")
-        return PlainTextResponse("Missing params", status_code=400)
-
-    if not payfast.verify_ipn_hash(basket_id, err_code, validation_hash):
-        print(f"[IPN] Hash mismatch for basket={basket_id}")
-        return PlainTextResponse("Hash mismatch", status_code=400)
-
-    if err_code == "000":
-        device_id = await db.get_device_id_by_basket(basket_id)
-        if device_id:
-            await db.update_transaction(basket_id, transaction_id or basket_id, "success")
+        # Guard against double-crediting (callback + webhook both fire)
+        already_fulfilled = await db.is_transaction_fulfilled(session_id)
+        if not already_fulfilled:
+            await db.update_transaction(session_id, session.payment_intent or session_id, "success")
             new_credits = await db.add_credits(device_id, db.CREDITS_PER_PURCHASE)
-            print(f"[IPN] Success: basket={basket_id}, device={device_id}, credits={new_credits}")
+            print(f"[Stripe] Callback credited: device={device_id}, session={session_id}, credits={new_credits}")
         else:
-            print(f"[IPN] No device found for basket={basket_id}")
-    else:
-        await db.update_transaction(basket_id, transaction_id or basket_id, f"failed:{err_code}")
-        print(f"[IPN] Failed: basket={basket_id}, err_code={err_code}, err_msg={err_msg}")
+            credits_row = await db.get_or_create_device(device_id)
+            new_credits = credits_row
+            print(f"[Stripe] Callback skipped (already fulfilled): session={session_id}")
 
-    return PlainTextResponse("OK", status_code=200)
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}?payment=success&credits={new_credits}",
+            status_code=302,
+        )
+
+    print(f"[Stripe] Callback: unpaid session {session_id}, status={session.payment_status}")
+    await db.update_transaction(session_id, session_id, f"failed:{session.payment_status}")
+    return RedirectResponse(url=f"{FRONTEND_URL}?payment=failed", status_code=302)
+
+
+@payment_router.post("/api/payment/webhook")
+async def stripe_webhook(request: Request):
+    """
+    Stripe webhook endpoint. More reliable than the callback redirect because
+    Stripe retries on failure. Set this URL in your Stripe Dashboard under
+    Webhooks: https://<your-backend>/api/payment/webhook
+    Listen for: checkout.session.completed
+    """
+    if not sp.STRIPE_WEBHOOK_SECRET:
+        # Webhook secret not configured — skip verification (not recommended for production)
+        print("[Stripe] Webhook secret not set, skipping signature verification")
+        return {"status": "ok"}
+
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+
+    try:
+        event = sp.construct_webhook_event(payload, sig_header)
+    except stripe.SignatureVerificationError:
+        print("[Stripe] Webhook signature verification failed")
+        raise HTTPException(status_code=400, detail="Invalid signature")
+    except Exception as e:
+        print(f"[Stripe] Webhook error: {e}")
+        raise HTTPException(status_code=400, detail="Webhook error")
+
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        if session.get("payment_status") == "paid":
+            session_id = session["id"]
+            device_id = (session.get("metadata") or {}).get("device_id", "")
+
+            if device_id:
+                already_fulfilled = await db.is_transaction_fulfilled(session_id)
+                if not already_fulfilled:
+                    await db.update_transaction(
+                        session_id,
+                        session.get("payment_intent") or session_id,
+                        "success",
+                    )
+                    new_credits = await db.add_credits(device_id, db.CREDITS_PER_PURCHASE)
+                    print(f"[Stripe] Webhook credited: device={device_id}, session={session_id}, credits={new_credits}")
+                else:
+                    print(f"[Stripe] Webhook skipped (already fulfilled): session={session_id}")
+            else:
+                print(f"[Stripe] Webhook: no device_id in metadata for session {session_id}")
+
+    return {"status": "ok"}
