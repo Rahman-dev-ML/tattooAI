@@ -77,7 +77,11 @@ async def payment_callback(session_id: str = "", device_id: str = ""):
 
     if session.payment_status == "paid":
         # Double-check device_id matches metadata stored at session creation
-        meta_device = session.metadata.get("device_id", "") if session.metadata else ""
+        # session.metadata is a StripeObject — access via ["key"], not .get()
+        try:
+            meta_device = session.metadata["device_id"] if session.metadata else ""
+        except (KeyError, TypeError):
+            meta_device = ""
         if meta_device and meta_device != device_id:
             print(f"[Stripe] Device mismatch: meta={meta_device} vs param={device_id}")
             return RedirectResponse(url=f"{FRONTEND_URL}?payment=failed", status_code=302)
@@ -130,18 +134,20 @@ async def stripe_webhook(request: Request):
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        if session.get("payment_status") == "paid":
+        payment_status = session["payment_status"] if "payment_status" in session else ""
+        if payment_status == "paid":
             session_id = session["id"]
-            device_id = (session.get("metadata") or {}).get("device_id", "")
+            try:
+                raw_meta = session["metadata"]
+                device_id = raw_meta["device_id"] if raw_meta else ""
+            except (KeyError, TypeError):
+                device_id = ""
 
             if device_id:
                 already_fulfilled = await db.is_transaction_fulfilled(session_id)
                 if not already_fulfilled:
-                    await db.update_transaction(
-                        session_id,
-                        session.get("payment_intent") or session_id,
-                        "success",
-                    )
+                    pi = session["payment_intent"] if "payment_intent" in session else session_id
+                    await db.update_transaction(session_id, pi or session_id, "success")
                     new_credits = await db.add_credits(device_id, db.CREDITS_PER_PURCHASE)
                     print(f"[Stripe] Webhook credited: device={device_id}, session={session_id}, credits={new_credits}")
                 else:
