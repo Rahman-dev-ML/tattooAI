@@ -288,6 +288,7 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
               return next
             })
           }}
+        onCreditsChange={(c) => setCredits(c)}
       />
     )
   }

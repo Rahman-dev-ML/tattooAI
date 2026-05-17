@@ -19,6 +19,7 @@ export function ResultScreen({
   couplePhotos,
   onBack,
   onAppendConcepts,
+  onCreditsChange,
 }: {
   flowTitle: string
   flowId: FlowId
@@ -30,6 +31,7 @@ export function ResultScreen({
   couplePhotos?: { a: File; b: File }
   onBack: () => void
   onAppendConcepts: (more: GenerateResponse) => void
+  onCreditsChange?: (credits: number) => void
 }) {
   const [selected, setSelected] = useState(0)
   const concept = data.concepts[selected]
@@ -145,6 +147,7 @@ export function ResultScreen({
     // Check credits before making the call
     const currentCredits = await checkCredits()
     if (currentCredits <= 0) {
+      onCreditsChange?.(0)
       setShowPaywall(true)
       return
     }
@@ -173,6 +176,7 @@ export function ResultScreen({
       onAppendConcepts(more)
     } catch (e) {
       if ((e as any)?.status === 402) {
+        onCreditsChange?.(0)
         setShowPaywall(true)
         return
       }

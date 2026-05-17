@@ -1,12 +1,13 @@
 'use client'
 
 import { useRef } from 'react'
+import type React from 'react'
 import { Camera, ImageIcon, X } from 'lucide-react'
 
 interface PhotoUploaderProps {
   value: File | null
   onChange: (file: File | null) => void
-  label?: string
+  label?: React.ReactNode
   hint?: string
 }
 

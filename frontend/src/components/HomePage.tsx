@@ -53,7 +53,7 @@ export function HomePage() {
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link
-            href="/flow/from_idea"
+            href="/design"
             className="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-6 py-3 text-ink-950 font-medium hover:bg-accent/90 transition"
           >
             Start designing
