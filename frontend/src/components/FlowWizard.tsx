@@ -9,6 +9,7 @@ import { generateCoupleTattoos, generateTattoos, checkCredits, getDeviceId, init
 import { ResultScreen } from '@/components/ResultScreen'
 import { ScarMarker, type ScarMark } from '@/components/ScarMarker'
 import { PaymentScreen } from '@/components/PaymentScreen'
+import { PhotoUploader } from '@/components/PhotoUploader'
 
 export function FlowWizard({ flowId }: { flowId: FlowId }) {
   const config = FLOW_CONFIGS[flowId]
@@ -335,33 +336,19 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
       )}
 
       {!uploadsOnly && (
-        <div className="rounded-2xl border border-border bg-ink-900/60 p-5 mb-6">
-          <label className="block text-sm font-medium text-ink-100 mb-2">Body photo</label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className={fileInputClass}
+        <div className="mb-6">
+          <PhotoUploader
+            value={file}
+            onChange={setFile}
+            label="Body photo"
+            hint={
+              (flowId === 'from_idea' || flowId === 'deep_meaning' || flowId === 'new_to_tattoos')
+                ? file
+                  ? 'Placement will be read from this photo — the "where on the body?" step is skipped.'
+                  : 'No photo yet? You will be asked to pick a body area in the steps below.'
+                : 'Choose a clear photo of the body area.'
+            }
           />
-          <p className="text-sm text-ink-100/70 mt-3">
-            {file ? (
-              <span className="text-accent/90">Selected: {file.name}</span>
-            ) : (
-              <span className="text-ink-100/60">Choose a clear photo of the body area.</span>
-            )}
-          </p>
-          {(flowId === 'from_idea' || flowId === 'deep_meaning' || flowId === 'new_to_tattoos') &&
-            file && (
-              <p className="text-xs text-accent/80 mt-2">
-                Placement will be read from this photo — the &quot;where on the body?&quot; step is skipped.
-              </p>
-            )}
-          {(flowId === 'from_idea' || flowId === 'deep_meaning' || flowId === 'new_to_tattoos') &&
-            !file && (
-              <p className="text-xs text-ink-100/50 mt-2">
-                No photo yet? You will be asked to pick a body area in the steps below.
-              </p>
-            )}
         </div>
       )}
 
@@ -451,11 +438,14 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
 
           {step.type === 'file' && (
             <div>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const f = e.target.files?.[0] ?? null
+              <PhotoUploader
+                value={
+                  step.id === 'reference_image' ? referenceFile
+                  : step.id === 'person_a_image' ? coupleFileA
+                  : step.id === 'person_b_image' ? coupleFileB
+                  : file
+                }
+                onChange={(f) => {
                   if (step.id === 'reference_image') setReferenceFile(f)
                   else if (step.id === 'person_a_image') setCoupleFileA(f)
                   else if (step.id === 'person_b_image') setCoupleFileB(f)
@@ -464,40 +454,18 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
                     setScarMark(null)
                   }
                 }}
-                className={fileInputClass}
+                hint={
+                  step.id === 'reference_image' ? 'Optional — add a reference image' :
+                  step.id === 'placement_image' ? (
+                    flowId === 'scar_coverup' ? 'Required — clear photo of the scar area' :
+                    flowId === 'tattoo_fade' ? 'Required — clear photo of the tattoo you want to age' :
+                    'Required — your skin, where the tattoo goes'
+                  ) :
+                  step.id === 'person_a_image' ? 'Required — Partner A placement photo' :
+                  step.id === 'person_b_image' ? 'Required — Partner B placement photo' :
+                  undefined
+                }
               />
-              <p className="text-sm text-ink-100/70 mt-3">
-                {step.id === 'reference_image' &&
-                  (referenceFile ? (
-                    <span className="text-accent/90">Selected: {referenceFile.name}</span>
-                  ) : (
-                    <span className="text-ink-100/60">Optional — add a reference image</span>
-                  ))}
-                {step.id === 'placement_image' &&
-                  (file ? (
-                    <span className="text-accent/90">Selected: {file.name}</span>
-                  ) : (
-                    <span className="text-ink-100/60">
-                      {flowId === 'scar_coverup'
-                        ? 'Required — clear photo of the scar area'
-                        : flowId === 'tattoo_fade'
-                        ? 'Required — clear photo of the tattoo you want to age'
-                        : 'Required — your skin, where the tattoo goes'}
-                    </span>
-                  ))}
-                {step.id === 'person_a_image' &&
-                  (coupleFileA ? (
-                    <span className="text-accent/90">Selected: {coupleFileA.name}</span>
-                  ) : (
-                    <span className="text-ink-100/60">Required — Partner A placement photo</span>
-                  ))}
-                {step.id === 'person_b_image' &&
-                  (coupleFileB ? (
-                    <span className="text-accent/90">Selected: {coupleFileB.name}</span>
-                  ) : (
-                    <span className="text-ink-100/60">Required — Partner B placement photo</span>
-                  ))}
-              </p>
 
               {step.id === 'placement_image' && flowId === 'scar_coverup' && file && (
                 <div className="mt-5 pt-5 border-t border-border">
