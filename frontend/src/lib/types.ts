@@ -37,6 +37,7 @@ export interface FlowAnswers {
   shared_style?: string
   shared_coverage?: string
   shared_strength?: string
+  run_offset?: string
   person_a_style?: string
   person_b_style?: string
   person_a_body_region?: string
