@@ -14,12 +14,12 @@ const crimson = Crimson_Pro({
 })
 
 export const metadata: Metadata = {
-  title: 'Tattoo Canvas AI — Design before you commit',
+  title: 'TattooVisionAI — Design before you commit',
   description:
     'AI tattoo concepts with virtual body preview, fit guidance, and compare — visual planning only, not medical advice.',
   icons: {
-    icon: '/favicon.ico',
-    apple: '/favicon.ico',
+    icon: '/favicon.png',
+    apple: '/favicon.png',
   },
 }
 
