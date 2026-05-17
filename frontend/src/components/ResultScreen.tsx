@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Bookmark, ChevronLeft, Heart, LayoutGrid, Loader2, Plus, Share2 } from 'lucide-react'
+import { Bookmark, ChevronLeft, Download, Heart, LayoutGrid, Loader2, Plus, Share2 } from 'lucide-react'
 import type { ConceptResult, FlowAnswers, FlowId, GenerateResponse } from '@/lib/types'
 import { generateCoupleTattoos, generateTattoos, checkCredits } from '@/lib/api'
 import { saveConcept } from '@/lib/storage'
@@ -90,17 +90,25 @@ export function ResultScreen({
     setTimeout(() => setSavedToast(false), 2000)
   }
 
+  function handleDownload(c: ConceptResult) {
+    const link = document.createElement('a')
+    link.href = dataUrl(c)
+    link.download = isCouple ? 'couple-tattoo-preview.jpg' : `tattoo-preview-${flowId}.jpg`
+    link.click()
+  }
+
   async function handleShare(c: ConceptResult) {
+    const siteUrl = 'https://tattoovisionai.com'
+    const shareText = isCouple
+      ? `Our couple tattoo preview — designed with AI ✨ ${siteUrl}`
+      : `My tattoo design — visualised with AI before committing ✨ ${siteUrl}`
     try {
       const res = await fetch(dataUrl(c))
       const blob = await res.blob()
-      const file = new File([blob], 'tattoo-coverup.jpg', { type: blob.type })
+      const file = new File([blob], 'tattoo-preview.jpg', { type: blob.type })
       const shareData: ShareData = {
         title: isCouple ? 'Our couple tattoo preview' : 'My tattoo design',
-        text:
-          isCouple
-            ? 'Couple tattoo preview made with Tattoo Advisor.'
-            : 'Tattoo preview made with Tattoo Advisor.',
+        text: shareText,
         files: [file],
       }
       if (
@@ -109,17 +117,20 @@ export function ResultScreen({
         navigator.canShare?.(shareData) &&
         'share' in navigator
       ) {
+        // Mobile native share sheet (WhatsApp, Instagram, etc. all appear)
         await navigator.share(shareData)
-        setShareToast('Shared')
+        setShareToast('Shared!')
+      } else if (typeof navigator !== 'undefined' && 'share' in navigator) {
+        // Desktop browser share without file
+        await navigator.share({ title: 'TattooVisionAI', text: shareText, url: siteUrl })
+        setShareToast('Shared!')
       } else {
-        const link = document.createElement('a')
-        link.href = dataUrl(c)
-        link.download = isCouple ? 'couple-tattoo.jpg' : 'tattoo-preview.jpg'
-        link.click()
-        setShareToast('Downloaded — share it anywhere')
+        // Fallback: copy link to clipboard
+        await navigator.clipboard.writeText(shareText)
+        setShareToast('Link copied — paste to share!')
       }
     } catch {
-      setShareToast('Could not share — try saving instead')
+      setShareToast('Could not share — try downloading instead')
     } finally {
       setTimeout(() => setShareToast(null), 2500)
     }
@@ -140,13 +151,20 @@ export function ResultScreen({
         isCouple && data.couple?.pair_id
           ? { ...answers, couple_pair_id: data.couple.pair_id }
           : answers
+
+      // Pass how many concepts already exist so backend picks a different motif slot
+      const answersWithOffset: FlowAnswers = {
+        ...coupleAnswers,
+        run_offset: String(data.concepts.length),
+      }
+
       const isSplit = isCouple && String(answers.couple_mode || '') === 'complementary_split'
       const more =
         isSplit
-          ? await generateCoupleTattoos(null, null, coupleAnswers)
+          ? await generateCoupleTattoos(null, null, answersWithOffset)
           : isCouple && couplePhotos
-          ? await generateCoupleTattoos(couplePhotos.a, couplePhotos.b, coupleAnswers)
-          : await generateTattoos(bodyPhoto as File, flowId, coupleAnswers, 1, referenceImage ?? null)
+          ? await generateCoupleTattoos(couplePhotos.a, couplePhotos.b, answersWithOffset)
+          : await generateTattoos(bodyPhoto as File, flowId, answersWithOffset, 1, referenceImage ?? null)
       onAppendConcepts(more)
     } catch (e) {
       if ((e as any)?.status === 402) {
@@ -264,6 +282,31 @@ export function ResultScreen({
               </button>
               <button
                 type="button"
+                onClick={() => handleDownload(concept)}
+                className="inline-flex items-center gap-1.5 text-xs rounded-full border border-border px-3 py-1.5 text-ink-100/80 hover:bg-ink-800/60"
+              >
+                <Download className="w-3.5 h-3.5" /> Download
+              </button>
+              <button
+                type="button"
+                onClick={() => handleShare(concept)}
+                className="inline-flex items-center gap-1.5 text-xs rounded-full border border-accent/40 px-3 py-1.5 text-accent hover:bg-accent/10"
+              >
+                <Share2 className="w-3.5 h-3.5" /> Share
+              </button>
+            </div>
+          )}
+          {concept && isCouple && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleDownload(concept)}
+                className="inline-flex items-center gap-1.5 text-xs rounded-full border border-border px-3 py-1.5 text-ink-100/80 hover:bg-ink-800/60"
+              >
+                <Download className="w-3.5 h-3.5" /> Download
+              </button>
+              <button
+                type="button"
                 onClick={() => handleShare(concept)}
                 className="inline-flex items-center gap-1.5 text-xs rounded-full border border-accent/40 px-3 py-1.5 text-accent hover:bg-accent/10"
               >
@@ -291,6 +334,13 @@ export function ResultScreen({
             </div>
             <p className="text-sm text-ink-100/80 leading-relaxed">{concept.explanation}</p>
             <div className="mt-auto pt-3 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => handleDownload(concept)}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-sm text-ink-100 hover:bg-ink-800/80 w-full"
+              >
+                <Download className="w-4 h-4" /> Download
+              </button>
               <button
                 type="button"
                 onClick={() => handleSave(concept)}

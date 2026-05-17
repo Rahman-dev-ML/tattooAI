@@ -26,6 +26,20 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
   const [showPaywall, setShowPaywall] = useState(false)
   const [credits, setCredits] = useState<number | null>(null)
 
+  const SESSION_KEY = `tattoo-result-${flowId}`
+
+  // Restore persisted result on mount (survives app-switching on mobile)
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(SESSION_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed?.concepts?.length > 0) setResult(parsed)
+      }
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Initialise FingerprintJS fingerprint, then load credits
   useEffect(() => {
     initDeviceId().then(() => checkCredits().then(setCredits))
@@ -224,6 +238,9 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
         setCredits(Math.max(0, credits - 1))
       }
 
+      // Persist result so it survives app-switching on mobile
+      try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(data)) } catch {}
+
       setResult(data)
     } catch (e) {
       if ((e as any)?.status === 402) {
@@ -257,24 +274,19 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
             ? { a: coupleFileA, b: coupleFileB }
             : undefined
         }
-        onBack={() => setResult(null)}
+        onBack={() => {
+            try { sessionStorage.removeItem(SESSION_KEY) } catch {}
+            setResult(null)
+          }}
         onAppendConcepts={(more) => {
-          setResult((prev) => {
-            if (!prev) return more
-            const offset = prev.concepts.length
-            const merged = more.concepts.map((c, i) => ({
-              ...c,
-              id: `c${offset + i + 1}`,
-            }))
-            const prevRuns = prev.replicate_calls ?? prev.concepts.length
-            const moreRuns = more.replicate_calls ?? more.concepts.length
-            return {
-              ...prev,
-              concepts: [...prev.concepts, ...merged],
-              replicate_calls: prevRuns + moreRuns,
-            }
-          })
-        }}
+            setResult((prev) => {
+              const next = prev
+                ? { ...prev, concepts: [...prev.concepts, ...more.concepts], replicate_calls: (prev.replicate_calls ?? prev.concepts.length) + (more.replicate_calls ?? more.concepts.length) }
+                : more
+              try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(next)) } catch {}
+              return next
+            })
+          }}
       />
     )
   }

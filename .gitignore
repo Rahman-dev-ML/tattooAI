@@ -12,3 +12,4 @@ dist/
 *.tsbuildinfo
 *.code-workspace
 backend/Untitled
+*.db

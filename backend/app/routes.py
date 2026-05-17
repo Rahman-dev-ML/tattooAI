@@ -110,8 +110,10 @@ async def generate(
     )
 
     # Credit check — deduct before running expensive AI call
+    # SKIP_CREDITS=1 disables checks in local development
+    skip_credits = os.environ.get("SKIP_CREDITS", "0").strip() == "1"
     credits_remaining: Optional[int] = None
-    if x_device_id:
+    if x_device_id and not skip_credits:
         credits_remaining = await db.deduct_credit(x_device_id, client_ip)
         if credits_remaining == -1:
             raise HTTPException(
@@ -350,7 +352,6 @@ async def generate(
                 reference_jpeg=reference_jpeg,
             )
         )
-
     if err or not concepts_raw:
         msg = err or "Generation failed"
         status = 500
@@ -458,8 +459,9 @@ async def generate_couple(
         or request.headers.get("X-Real-IP", "")
         or (request.client.host if request.client else "")
     )
+    skip_credits = os.environ.get("SKIP_CREDITS", "0").strip() == "1"
     couple_credits_remaining: Optional[int] = None
-    if x_device_id:
+    if x_device_id and not skip_credits:
         couple_credits_remaining = await db.deduct_credit(x_device_id, client_ip)
         if couple_credits_remaining == -1:
             raise HTTPException(

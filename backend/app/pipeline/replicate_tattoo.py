@@ -1293,11 +1293,13 @@ async def generate_tattoo_concepts(
 
     n = max(1, min(4, int(num_concepts)))
     seeds = [random.randint(1, 999_999_999) for _ in range(n)]
-    # Fresh per-request salt so two identical user submissions don't pick
-    # the exact same motifs (was the "always lion / always dragon / always
-    # heart" complaint). Variants within the same request still see the
-    # same salt — that's correct, what changes between them is variant_index.
-    run_salt = random.randint(0, 1_000_000)
+
+    # run_offset shifts variant_index so "Add variation" calls pick different
+    # motif slots from previous runs (frontend passes concepts_so_far in answers)
+    run_offset = int(answers.get("run_offset", 0))
+
+    # Fresh per-request salt — wider range (full 32-bit) for more motif diversity
+    run_salt = random.randint(0, 2_147_483_647)
 
     style_label = answers.get("style") or answers.get("conversion_style") or "auto"
     print(
@@ -1310,7 +1312,7 @@ async def generate_tattoo_concepts(
         build_tattoo_edit_prompt(
             flow_id,
             answers,
-            variant_index=i,
+            variant_index=(run_offset + i),
             reference_image_attached=reference_jpeg is not None,
             run_salt=run_salt,
         )

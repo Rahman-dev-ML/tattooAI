@@ -20,6 +20,8 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "https://tattoo-ai-backend.fly.dev")
 @payment_router.get("/api/credits")
 async def get_credits(request: Request, x_device_id: str = Header(..., alias="X-Device-ID")):
     """Return credit balance for a device."""
+    if os.environ.get("SKIP_CREDITS", "0").strip() == "1":
+        return {"credits": 999}
     client_ip = (
         request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
         or request.headers.get("X-Real-IP", "")
