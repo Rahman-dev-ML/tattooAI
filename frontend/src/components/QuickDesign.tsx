@@ -1,181 +1,134 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Loader2 } from 'lucide-react'
-import { generateTattoos, checkCredits, initDeviceId } from '@/lib/api'
-import type { GenerateResponse } from '@/lib/types'
-import { PhotoUploader } from '@/components/PhotoUploader'
-import { ResultScreen } from '@/components/ResultScreen'
-import { PaymentScreen } from '@/components/PaymentScreen'
+import {
+  ArrowRight,
+  Sparkles,
+  Palette,
+  Users,
+  Shield,
+  Camera,
+  Clock,
+  ChevronLeft,
+} from 'lucide-react'
 
-const SESSION_KEY = 'tattoo-result-quick_design'
+const FLOW_PATHS = [
+  {
+    id: 'new_to_tattoos',
+    icon: Sparkles,
+    title: 'I am new to tattoos',
+    desc: 'Not sure where to start? 3 guided questions and we handle the rest.',
+    badge: null,
+    accentBg: false,
+  },
+  {
+    id: 'from_idea',
+    icon: Palette,
+    title: 'I already have an idea',
+    desc: 'Describe your concept and preferred style — see it on your body.',
+    badge: null,
+    accentBg: false,
+  },
+  {
+    id: 'couple_tattoo',
+    icon: Users,
+    title: 'I want a couple tattoo',
+    desc: 'Matching pair or two halves that connect when held together.',
+    badge: null,
+    accentBg: false,
+  },
+  {
+    id: 'scar_coverup',
+    icon: Shield,
+    title: 'I want to cover or transform a scar',
+    desc: 'Turn a scar, stretch mark, or old tattoo into something beautiful.',
+    badge: 'Healing',
+    accentBg: true,
+  },
+  {
+    id: 'photo_convert',
+    icon: Camera,
+    title: 'I want to turn a photo into a tattoo',
+    desc: 'Upload your pet, portrait, or sketch — we convert it to ink.',
+    badge: null,
+    accentBg: false,
+  },
+  {
+    id: 'tattoo_fade',
+    icon: Clock,
+    title: 'I want to see how a tattoo may age',
+    desc: 'Preview what a tattoo looks like after 2, 7, or 15 years of wear.',
+    badge: null,
+    accentBg: false,
+  },
+]
 
 export function QuickDesign() {
-  const [prompt, setPrompt] = useState('')
-  const [photo, setPhoto] = useState<File | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<GenerateResponse | null>(null)
-  const [showPaywall, setShowPaywall] = useState(false)
-  const [credits, setCredits] = useState<number | null>(null)
-
-  // Restore persisted result on mount
-  useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem(SESSION_KEY)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        if (parsed?.concepts?.length > 0) setResult(parsed)
-      }
-    } catch {}
-    initDeviceId().then(() => checkCredits().then(setCredits))
-  }, [])
-
-  async function handleGenerate() {
-    if (!photo || !prompt.trim()) return
-
-    if (credits !== null && credits <= 0) {
-      setShowPaywall(true)
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-    try {
-      const data = await generateTattoos(photo, 'from_idea', { idea: prompt.trim() }, 1, null)
-
-      if ((data as any).creditsRemaining !== undefined) {
-        setCredits((data as any).creditsRemaining)
-      } else if (credits !== null) {
-        setCredits(Math.max(0, credits - 1))
-      }
-
-      try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(data)) } catch {}
-      setResult(data)
-    } catch (e) {
-      if ((e as any)?.status === 402) {
-        setCredits(0)
-        setShowPaywall(true)
-        return
-      }
-      setError(e instanceof Error ? e.message : 'Generation failed — please try again')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  if (showPaywall) {
-    return <PaymentScreen onBack={() => setShowPaywall(false)} />
-  }
-
-  if (result) {
-    return (
-      <ResultScreen
-        flowTitle="Quick Design"
-        flowId="from_idea"
-        data={result}
-        bodyPhoto={photo}
-        answers={{ idea: prompt.trim() }}
-        onBack={() => {
-          try { sessionStorage.removeItem(SESSION_KEY) } catch {}
-          setResult(null)
-        }}
-        onAppendConcepts={(more) => {
-          setResult((prev) => {
-            const next = prev
-              ? { ...prev, concepts: [...prev.concepts, ...more.concepts], replicate_calls: (prev.replicate_calls ?? prev.concepts.length) + (more.replicate_calls ?? more.concepts.length) }
-              : more
-            try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(next)) } catch {}
-            return next
-          })
-        }}
-        onCreditsChange={(c) => setCredits(c)}
-      />
-    )
-  }
-
-  const canGenerate = !!photo && prompt.trim().length > 0 && !loading
-
   return (
-    <div className="max-w-lg mx-auto px-4 py-10">
-      <Link href="/" className="inline-flex items-center gap-1 text-sm text-ink-100/50 hover:text-ink-100/80 mb-8">
-        ← Home
-      </Link>
+    <div className="min-h-screen bg-ink-950">
+      <div className="w-full min-w-0 max-w-xl mx-auto px-4 py-10">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1 text-sm text-ink-100/40 hover:text-ink-100/70 mb-8 transition"
+        >
+          <ChevronLeft className="w-4 h-4" /> Home
+        </Link>
 
-      <div className="mb-8">
-        <h1 className="font-display text-3xl text-ink-100 mb-2">Design your tattoo</h1>
-        <p className="text-ink-100/55 text-sm">
-          Describe what you want — anything from &quot;a small rose on my wrist&quot; to &quot;something meaningful about strength&quot;. Upload a photo of the body area and we&apos;ll generate a preview.
+        <div className="mb-8">
+          <h1 className="font-display text-3xl sm:text-4xl text-ink-100 mb-3 leading-tight">
+            What do you want to do?
+          </h1>
+          <p className="text-ink-100/60 text-base">
+            Pick your path — each takes just 3 to 4 questions.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {FLOW_PATHS.map((path) => (
+            <Link
+              key={path.id}
+              href={`/flow/${path.id}`}
+              className={`group flex items-center gap-4 rounded-2xl border p-5 transition active:scale-[0.99] ${
+                path.accentBg
+                  ? 'border-accent/40 bg-gradient-to-r from-accent/8 to-transparent hover:border-accent/60'
+                  : 'border-border bg-ink-900/60 hover:border-accent/30 hover:bg-ink-900'
+              }`}
+            >
+              <div
+                className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${
+                  path.accentBg ? 'bg-accent/15' : 'bg-ink-800'
+                }`}
+              >
+                <path.icon
+                  className={`w-6 h-6 ${
+                    path.accentBg ? 'text-accent' : 'text-accent/60 group-hover:text-accent transition'
+                  }`}
+                />
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-display text-base sm:text-lg text-ink-100 group-hover:text-accent transition leading-snug">
+                    {path.title}
+                  </span>
+                  {path.badge && (
+                    <span className="shrink-0 text-[10px] font-bold tracking-wider uppercase text-accent bg-accent/15 px-2 py-0.5 rounded-full">
+                      {path.badge}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm sm:text-base text-ink-100/55 leading-snug">{path.desc}</p>
+              </div>
+
+              <ArrowRight className="shrink-0 w-5 h-5 text-ink-100/20 group-hover:text-accent transition" />
+            </Link>
+          ))}
+        </div>
+
+        <p className="text-center text-xs text-ink-100/25 mt-10">
+          Visual simulations only. Always consult a professional tattoo artist.
         </p>
       </div>
-
-      {/* Credits badge */}
-      {credits !== null && (
-        <div className="mb-6 flex justify-end">
-          <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
-            credits <= 0
-              ? 'border-red-500/30 bg-red-500/10 text-red-400'
-              : 'border-border bg-ink-800 text-ink-100/60'
-          }`}>
-            {credits <= 0 ? 'No credits' : `${credits} credit${credits === 1 ? '' : 's'} left`}
-          </span>
-        </div>
-      )}
-
-      {/* Prompt */}
-      <div className="mb-5">
-        <label className="block text-sm font-medium text-ink-100 mb-2">
-          What do you want? <span className="text-red-400">*</span>
-        </label>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="e.g. a phoenix rising from flames, small and fine-line on my forearm… or just 'something about new beginnings'"
-          rows={3}
-          maxLength={400}
-          className="w-full rounded-xl border border-border bg-ink-900/60 px-4 py-3 text-sm text-ink-100 placeholder:text-ink-100/30 focus:outline-none focus:border-accent/50 resize-none"
-        />
-        <p className="text-xs text-ink-100/30 mt-1 text-right">{prompt.length}/400</p>
-      </div>
-
-      {/* Photo upload */}
-      <div className="mb-7">
-        <PhotoUploader
-          value={photo}
-          onChange={setPhoto}
-          label={<>Body photo <span className="text-red-400">*</span></>}
-          hint="Take a photo or upload one showing the area where you want the tattoo."
-        />
-      </div>
-
-      {error && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 mb-5 text-sm text-red-400">
-          {error}
-        </div>
-      )}
-
-      <button
-        type="button"
-        onClick={handleGenerate}
-        disabled={!canGenerate}
-        className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-accent px-6 py-3.5 text-base font-medium text-ink-950 disabled:opacity-40 transition active:scale-95"
-      >
-        {loading ? (
-          <>
-            <Loader2 className="w-5 h-5 animate-spin" />
-            Generating your design…
-          </>
-        ) : (
-          'Generate preview'
-        )}
-      </button>
-
-      {loading && (
-        <p className="text-center text-xs text-ink-100/40 mt-3">
-          This usually takes 30–60 seconds
-        </p>
-      )}
     </div>
   )
 }

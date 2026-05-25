@@ -134,7 +134,7 @@ export const FLOW_CONFIGS: Record<FlowId, FlowConfig> = {
   from_idea: {
     id: 'from_idea',
     title: 'Generate from my idea',
-    description: 'Describe your idea, pick a style, then put it in your own words for the prompt.',
+    description: 'Describe your idea, pick a style, and tell us where you want it.',
     steps: [
       {
         id: 'idea',
@@ -151,32 +151,20 @@ export const FLOW_CONFIGS: Record<FlowId, FlowConfig> = {
       },
       {
         id: 'style_notes',
-        title: 'Describe how you want this style to look',
-        subtitle: 'Required — this text is sent straight into the AI prompt (mood, line weight, references, what to avoid).',
+        title: 'Describe how it should look',
+        subtitle: 'Mood, line weight, references, what to avoid — this shapes the AI output.',
         type: 'text',
         placeholder:
-          'e.g. crisp single-weight outline, soft whip shading only under the rose, no dot-fill, classy not tribal…',
+          'e.g. crisp single-weight outline, soft shading under the rose, no dot-fill, classy not tribal…',
         multiline: true,
       },
       {
         id: 'body_region',
         title: 'Where do you want it?',
         subtitle:
-          'Only if you did not upload a body photo above — with a photo we read placement from your picture.',
+          'Skip this if you uploaded a body photo — we read placement from your picture.',
         type: 'choice',
         options: BODY_REGIONS,
-      },
-      {
-        id: 'strength',
-        title: 'How strong should it look?',
-        type: 'choice',
-        options: STRENGTH,
-      },
-      {
-        id: 'coverage',
-        title: 'How much coverage?',
-        type: 'choice',
-        options: COVERAGE,
       },
     ],
   },
@@ -188,8 +176,8 @@ export const FLOW_CONFIGS: Record<FlowId, FlowConfig> = {
     steps: [
       {
         id: 'reference_image',
-        title: 'Reference image (optional)',
-        subtitle: 'Pet, sketch, symbol — helps lock the subject. Skip if you will describe it in text only.',
+        title: 'Upload the photo to convert',
+        subtitle: 'Pet, portrait, sketch, or symbol — this is the image we turn into tattoo ink.',
         type: 'file',
       },
       {
@@ -201,7 +189,7 @@ export const FLOW_CONFIGS: Record<FlowId, FlowConfig> = {
       },
       {
         id: 'conversion_style',
-        title: 'Conversion style',
+        title: 'Which tattoo style?',
         type: 'choice',
         options: [
           { value: 'fine_line', label: 'Fine line' },
@@ -212,18 +200,6 @@ export const FLOW_CONFIGS: Record<FlowId, FlowConfig> = {
           { value: 'geometric', label: 'Geometric interpretation' },
           { value: 'ornamental', label: 'Ornamental interpretation' },
         ],
-      },
-      {
-        id: 'strength',
-        title: 'How strong should it look?',
-        type: 'choice',
-        options: STRENGTH,
-      },
-      {
-        id: 'coverage',
-        title: 'How much coverage?',
-        type: 'choice',
-        options: COVERAGE,
       },
       {
         id: 'placement_image',

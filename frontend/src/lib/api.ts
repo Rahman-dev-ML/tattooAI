@@ -99,7 +99,7 @@ const GENERATION_TIMEOUT_MS = 240_000
 import type { FlowAnswers, FlowId, GenerateResponse } from './types'
 
 export async function generateTattoos(
-  image: File,
+  image: File | null,
   flowId: FlowId,
   answers: FlowAnswers,
   numConcepts = 1,
@@ -109,7 +109,7 @@ export async function generateTattoos(
   const timeoutId = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS)
 
   const form = new FormData()
-  form.append('image', image)
+  if (image) form.append('image', image)
   form.append('flow_id', flowId)
   form.append('answers_json', JSON.stringify(answers))
   form.append('num_concepts', String(numConcepts))

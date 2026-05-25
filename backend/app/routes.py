@@ -51,6 +51,8 @@ VALID_FLOWS = frozenset(
     }
 )
 
+_PHOTO_REQUIRED_FLOWS = frozenset({"photo_convert", "scar_coverup", "tattoo_fade"})
+
 _GEN_LIMIT = os.environ.get("GENERATE_RATE_LIMIT", "20/minute")
 _STATUS_LIMIT = os.environ.get("STATUS_RATE_LIMIT", "120/minute")
 _MAX_CONCURRENT_GENERATIONS = get_settings()["max_concurrent_generations"]
@@ -93,10 +95,10 @@ def _short_explanation(flow_id: str, answers: dict[str, Any], index: int) -> str
 @router.post("/api/generate")
 async def generate(
     request: Request,
-    image: UploadFile = File(...),
     flow_id: str = Form(...),
     answers_json: str = Form(...),
     num_concepts: int = Form(1),
+    image: Optional[UploadFile] = File(None),
     reference_image: Optional[UploadFile] = File(None),
     _: bool = Depends(verify_service_key),
     x_device_id: Optional[str] = None,
@@ -147,13 +149,34 @@ async def generate(
     if not isinstance(answers, dict):
         raise HTTPException(status_code=400, detail="answers_json must be an object")
 
-    raw = await read_upload_bytes(image, settings["max_upload_bytes"])
-    image_bytes = preprocess_image_to_jpeg(raw)
+    body_region = str(answers.get("body_region") or "other")
+    has_upload = bool(image and image.filename)
+
+    if flow_id in _PHOTO_REQUIRED_FLOWS and not has_upload:
+        raise HTTPException(status_code=400, detail="A photo upload is required for this flow.")
+
+    design_only = not has_upload
+    if design_only and body_region == "from_photo":
+        raise HTTPException(
+            status_code=400,
+            detail="Upload a body photo or choose a body area.",
+        )
+
+    image_bytes: Optional[bytes] = None
+    if has_upload:
+        raw = await read_upload_bytes(image, settings["max_upload_bytes"])
+        image_bytes = preprocess_image_to_jpeg(raw)
 
     reference_jpeg: Optional[bytes] = None
     if reference_image and reference_image.filename:
         ref_raw = await read_upload_bytes(reference_image, settings["max_upload_bytes"])
         reference_jpeg = preprocess_image_to_jpeg(ref_raw)
+
+    if flow_id == "photo_convert" and reference_jpeg is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Reference photo is required for photo-to-tattoo conversion.",
+        )
 
     # Faded-tattoo flow: fast path. Single prunaai/p-image-edit call
     # with a fade-specialised prompt. No SAM, no scar logic, no body-
@@ -345,11 +368,12 @@ async def generate(
         # tap-location hint).
         concepts_raw, err = await _run_with_generation_slot(
             generate_tattoo_concepts(
-                image_bytes,
+                image_bytes or b"",
                 flow_id,
                 answers,
                 num_concepts=n,
                 reference_jpeg=reference_jpeg,
+                design_only=design_only,
             )
         )
     if err or not concepts_raw:

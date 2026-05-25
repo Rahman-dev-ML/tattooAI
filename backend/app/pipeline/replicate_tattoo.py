@@ -55,6 +55,7 @@ if not REPLICATE_API_TOKEN:
             pass
 
 PREDICTIONS_URL = "https://api.replicate.com/v1/models/prunaai/p-image-edit/predictions"
+P_IMAGE_URL = "https://api.replicate.com/v1/models/prunaai/p-image/predictions"
 POLL_INTERVAL_SEC = 1.0
 POLL_MAX_ATTEMPTS = 150
 HTTP_LIMITS = httpx.Limits(max_keepalive_connections=20, max_connections=40)
@@ -829,6 +830,85 @@ async def _replicate_kontext_multi(
         )
 
 
+def _design_only_prompt(edit_prompt: str) -> str:
+    """Text-to-image prompt when the user picked a body area but did not upload a photo."""
+    return (
+        "Professional tattoo design flash sheet, isolated artwork on clean white background. "
+        "Black and grey tattoo ink only — NO human body, NO skin, NO photograph, NO person. "
+        "High contrast tattoo flash ready for an artist stencil.\n\n"
+        f"{edit_prompt}"
+    )
+
+
+async def _replicate_p_image(
+    client: httpx.AsyncClient,
+    prompt: str,
+    seed: int,
+    *,
+    aspect_ratio: str = "1:1",
+) -> tuple[Optional[bytes], Optional[str]]:
+    """prunaai/p-image — text-to-image for design-only (no body photo uploaded)."""
+    headers = {
+        "Authorization": f"Bearer {REPLICATE_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "input": {
+            "prompt": prompt,
+            "aspect_ratio": aspect_ratio,
+            "seed": seed,
+            "prompt_upsampling": False,
+        }
+    }
+    try:
+        r = await client.post(
+            P_IMAGE_URL, headers=headers, json=payload, timeout=httpx.Timeout(180.0)
+        )
+        if r.status_code not in (200, 201):
+            return None, f"p-image API error {r.status_code}: {r.text[:400]}"
+
+        result = r.json()
+        out = result.get("output")
+        if out:
+            url = out if isinstance(out, str) else out[0]
+            img_r = await client.get(url, timeout=httpx.Timeout(60.0))
+            if img_r.status_code == 200:
+                return img_r.content, None
+
+        pred_id = result.get("id")
+        if not pred_id:
+            return None, "p-image: no prediction id"
+
+        get_url = f"https://api.replicate.com/v1/predictions/{pred_id}"
+        for _ in range(POLL_MAX_ATTEMPTS):
+            await asyncio.sleep(POLL_INTERVAL_SEC)
+            pr = await client.get(get_url, headers=headers, timeout=httpx.Timeout(60.0))
+            if pr.status_code != 200:
+                continue
+            data = pr.json()
+            status = data.get("status")
+            if status == "succeeded":
+                output = data.get("output")
+                if output:
+                    url = output if isinstance(output, str) else output[0]
+                    img_r = await client.get(url, timeout=httpx.Timeout(60.0))
+                    if img_r.status_code == 200:
+                        return img_r.content, None
+                return None, "p-image: empty output"
+            if status == "failed":
+                return None, str(data.get("error", "p-image failed"))
+            if status == "canceled":
+                return None, "p-image canceled"
+
+        return None, "p-image timeout"
+    except httpx.RequestError as e:
+        return (
+            None,
+            f"Network error: cannot reach Replicate (p-image). "
+            f"Details: {type(e).__name__}: {e!s}",
+        )
+
+
 async def _replicate_p_image_edit(
     client: httpx.AsyncClient,
     image_jpegs: list[bytes],
@@ -1287,6 +1367,8 @@ async def generate_tattoo_concepts(
     answers: dict,
     num_concepts: int = 1,
     reference_jpeg: Optional[bytes] = None,
+    *,
+    design_only: bool = False,
 ) -> tuple[list[dict], Optional[str]]:
     if not REPLICATE_API_TOKEN or len(REPLICATE_API_TOKEN) < 10:
         return [], "REPLICATE_API_TOKEN not configured"
@@ -1305,7 +1387,7 @@ async def generate_tattoo_concepts(
     print(
         f"[TATTOO] flow={flow_id} style={style_label} concepts={n} "
         f"ref_attached={reference_jpeg is not None} run_salt={run_salt} "
-        f"photo_stencil={_use_photo_convert_stencil()!s}"
+        f"photo_stencil={_use_photo_convert_stencil()!s} design_only={design_only}"
     )
 
     prompts = [
@@ -1326,6 +1408,35 @@ async def generate_tattoo_concepts(
             print(f"{'='*60}\n")
 
     async with httpx.AsyncClient(limits=HTTP_LIMITS, http2=False) as client:
+        if design_only:
+            print(f"[TATTOO] design-only path: prunaai/p-image x{n}")
+            tasks = [
+                _replicate_p_image(
+                    client,
+                    _design_only_prompt(prompts[i]),
+                    seeds[i],
+                )
+                for i in range(n)
+            ]
+            results = await asyncio.gather(*tasks)
+            concepts: list[dict] = []
+            errors: list[str] = []
+            for i, (blob, err) in enumerate(results):
+                if blob:
+                    concepts.append(
+                        {
+                            "variant_index": i,
+                            "seed": seeds[i],
+                            "image_base64": base64.b64encode(blob).decode("ascii"),
+                            "media_type": "image/jpeg",
+                        }
+                    )
+                elif err:
+                    errors.append(err)
+            if not concepts:
+                return [], errors[0] if errors else "All design generations failed"
+            return concepts, None
+
         # Optional: stencil (reference only) + local composite — not default; two-image
         # call matches the higher-quality "full piece on skin" look most users want.
         if (

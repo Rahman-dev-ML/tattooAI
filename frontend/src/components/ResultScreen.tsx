@@ -172,7 +172,7 @@ export function ResultScreen({
           ? await generateCoupleTattoos(null, null, answersWithOffset)
           : isCouple && couplePhotos
           ? await generateCoupleTattoos(couplePhotos.a, couplePhotos.b, answersWithOffset)
-          : await generateTattoos(bodyPhoto as File, flowId, answersWithOffset, 1, referenceImage ?? null)
+          : await generateTattoos(bodyPhoto, flowId, answersWithOffset, 1, referenceImage ?? null)
       onAppendConcepts(more)
     } catch (e) {
       if ((e as any)?.status === 402) {

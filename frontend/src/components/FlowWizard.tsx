@@ -11,6 +11,8 @@ import { ScarMarker, type ScarMark } from '@/components/ScarMarker'
 import { PaymentScreen } from '@/components/PaymentScreen'
 import { PhotoUploader } from '@/components/PhotoUploader'
 
+const REGION_ONLY_FLOWS: FlowId[] = ['new_to_tattoos', 'from_idea', 'deep_meaning']
+
 export function FlowWizard({ flowId }: { flowId: FlowId }) {
   const config = FLOW_CONFIGS[flowId]
   const [stepIndex, setStepIndex] = useState(0)
@@ -74,7 +76,10 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
     }
     if (step.type === 'chips') return chips.length >= 1
     if (step.type === 'file') {
-      if (step.id === 'reference_image') return true
+      if (step.id === 'reference_image') {
+        if (flowId === 'photo_convert') return referenceFile !== null
+        return true
+      }
       if (step.id === 'placement_image') {
         if (file === null) return false
         if (flowId === 'scar_coverup' && scarMark === null) return false
@@ -102,7 +107,7 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
       return typeof v === 'string' && v.trim().length > 2
     }
     return typeof v === 'string' && v.length > 0
-  }, [step, raw, chips, file, scarMark, flowId, coupleFileA, coupleFileB])
+  }, [step, raw, chips, file, scarMark, flowId, coupleFileA, coupleFileB, referenceFile])
 
   function setChoice(value: string) {
     if (!step) return
@@ -187,20 +192,25 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
         setError('Upload both partner photos to generate a couple preview.')
         return
       }
-    } else if (flowId === 'photo_convert' || flowId === 'scar_coverup' || flowId === 'tattoo_fade') {
+    } else if (flowId === 'photo_convert') {
+      if (!referenceFile || !file) {
+        setError('Upload both a reference photo and your body photo to continue.')
+        return
+      }
+    } else if (flowId === 'scar_coverup' || flowId === 'tattoo_fade') {
       if (!file) {
         setError(
           flowId === 'scar_coverup'
             ? 'Upload a clear photo of the scar on the last step.'
-            : flowId === 'tattoo_fade'
-            ? 'Upload a clear photo of the tattoo you want to age.'
-            : 'Upload a body photo on the last step (where the tattoo goes).'
+            : 'Upload a clear photo of the tattoo you want to age.'
         )
         return
       }
     } else if (!file) {
-      setError('Upload a body photo first.')
-      return
+      if (!REGION_ONLY_FLOWS.includes(flowId) || !raw.body_region) {
+        setError('Upload a body photo or choose a body area to continue.')
+        return
+      }
     }
 
     // Check credits before calling API
@@ -225,7 +235,7 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
           : isMatchingPair
           ? await generateCoupleTattoos(coupleFileA!, coupleFileB!, answers)
           : await generateTattoos(
-              file as File,
+              file,
               flowId,
               answers,
               1,
@@ -261,7 +271,8 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
 
   const isSplitMode = flowId === 'couple_tattoo' && String(raw.couple_mode || '') === 'complementary_split'
   const previewBodyPhoto = isSplitMode ? null : flowId === 'couple_tattoo' ? coupleFileA : file
-  if (result && (previewBodyPhoto || isSplitMode)) {
+  const designOnlyResult = Boolean(result && !previewBodyPhoto && !isSplitMode)
+  if (result && (previewBodyPhoto || isSplitMode || designOnlyResult)) {
     return (
       <ResultScreen
         flowTitle={config.title}
@@ -456,7 +467,6 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
                   }
                 }}
                 hint={
-                  step.id === 'reference_image' ? 'Optional — add a reference image' :
                   step.id === 'placement_image' ? (
                     flowId === 'scar_coverup' ? 'Required — clear photo of the scar area' :
                     flowId === 'tattoo_fade' ? 'Required — clear photo of the tattoo you want to age' :
@@ -523,7 +533,11 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
                 ? String(raw.couple_mode || '') === 'complementary_split'
                   ? false
                   : !coupleFileA || !coupleFileB
-                : !file) || loading
+                : flowId === 'photo_convert'
+                ? !file || !referenceFile
+                : flowId === 'scar_coverup' || flowId === 'tattoo_fade'
+                ? !file
+                : !file && !(REGION_ONLY_FLOWS.includes(flowId) && raw.body_region)) || loading
             }
             onClick={runGenerate}
             className="inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-ink-950 disabled:opacity-40"
