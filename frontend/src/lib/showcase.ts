@@ -35,12 +35,12 @@ export const SHOWCASE_ITEMS: ShowcaseItem[] = [
     hero: true,
   },
   {
-    id: 'arm-japanese-female',
-    label: 'Female Forearm · Japanese',
+    id: 'faded-forearm',
+    label: 'Forearm · Aged 10–15 yrs',
     filterTag: 'Forearm',
-    beforeSrc: `${base}/sarah-before.jpg`,
-    afterSrc: `${base}/sarah-after1.png`,
-    flowId: 'from_idea',
+    beforeSrc: `${base}/FADEDTRY3.png`,
+    afterSrc: `${base}/faded-after.jpeg`,
+    flowId: 'tattoo_fade',
     hero: true,
   },
   {
@@ -69,14 +69,6 @@ export const SHOWCASE_ITEMS: ShowcaseItem[] = [
     afterSrc: `${base}/scar2after.jpeg`,
     badge: 'scar',
     flowId: 'scar_coverup',
-  },
-  {
-    id: 'arm-japanese-female-2',
-    label: 'Female Forearm · Japanese',
-    filterTag: 'Forearm',
-    beforeSrc: `${base}/sarah-before.jpg`,
-    afterSrc: `${base}/sarah-after2.png`,
-    flowId: 'from_idea',
   },
 ]
 

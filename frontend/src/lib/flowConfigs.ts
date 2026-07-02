@@ -369,11 +369,9 @@ export const FLOW_CONFIGS: Record<FlowId, FlowConfig> = {
       {
         id: 'fade_strength',
         title: 'How much fade?',
-        subtitle: 'Roughly how many years of skin wear should we simulate?',
+        subtitle: 'We simulate roughly 10 to 15 years of natural skin wear.',
         type: 'choice',
         options: [
-          { value: 'subtle', label: 'Subtle — 2 to 3 years' },
-          { value: 'moderate', label: 'Moderate — 5 to 7 years' },
           { value: 'heavy', label: 'Heavy — 10 to 15 years' },
         ],
       },

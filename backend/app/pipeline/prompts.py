@@ -1458,16 +1458,12 @@ def _build_subject_prompt(
             "- DO NOT add any text, letters, numbers, or letter-like marks anywhere in the design."
         )
 
-    # Opening line differs for small (strict "leave the rest alone") vs
-    # medium/large (let the model commit to a real piece).
-    if is_small:
-        opening = (
-            "EDIT this photograph. Add ONE single professional tattoo. Keep everything else "
-            "in the photo IDENTICAL — same body, same skin, same clothing, same background, "
-            "same lighting. The only change is the new tattoo."
-        )
-    else:
-        opening = f"EDIT this photograph. Add ONE professional tattoo on the {region_text}"
+    opening = (
+        "EDIT this EXACT photograph. Add ONE single professional tattoo on the "
+        f"{region_text}. Keep everything else in the photo IDENTICAL — same body, "
+        "same anatomy, same skin, same clothing, same background, same reflections, "
+        "same lighting, same camera angle. The only change is healed tattoo ink on skin."
+    )
 
     parts = [
         opening,
@@ -1501,6 +1497,8 @@ def _build_subject_prompt(
         text_failure,
         "- DO NOT make the lines look like a pencil or pen sketch — these are real healed tattoo ink in the skin.",
         "- DO NOT replace the requested subject with a generic flash motif. Draw the subject above.",
+        "- DO NOT generate a new person, new face, new body part, new room, mirror reflection, window reflection, ladder, frame, object, shadow, or background detail.",
+        "- DO NOT redraw the uploaded photo. Preserve the uploaded photo exactly except for tattoo ink on the selected skin area.",
     ]
     if is_small:
         # Small-only constraints — without these, small reverts to medium.
