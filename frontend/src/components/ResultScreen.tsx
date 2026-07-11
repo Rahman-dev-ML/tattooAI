@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Bookmark, ChevronLeft, Download, Heart, LayoutGrid, Loader2, Plus, Share2 } from 'lucide-react'
+import { Bookmark, ChevronLeft, Download, LayoutGrid, Loader2, Share2, Sparkles, Zap } from 'lucide-react'
 import type { ConceptResult, FlowAnswers, FlowId, GenerateResponse } from '@/lib/types'
 import { generateCoupleTattoos, generateTattoos, checkCredits } from '@/lib/api'
 import { saveConcept } from '@/lib/storage'
@@ -26,7 +26,6 @@ export function ResultScreen({
   data: GenerateResponse
   bodyPhoto: File | null
   answers: FlowAnswers
-  /** Photo-convert flow: same reference as first run */
   referenceImage?: File | null
   couplePhotos?: { a: File; b: File }
   onBack: () => void
@@ -40,6 +39,7 @@ export function ResultScreen({
   const [moreLoading, setMoreLoading] = useState(false)
   const [moreError, setMoreError] = useState<string | null>(null)
   const [showPaywall, setShowPaywall] = useState(false)
+  const [credits, setCredits] = useState<number | null>(null)
   const isFade = flowId === 'tattoo_fade'
   const [showCompare, setShowCompare] = useState(flowId === 'scar_coverup' || isFade)
   const prevCount = useRef(data.concepts.length)
@@ -56,10 +56,6 @@ export function ResultScreen({
       : '~5-7 yrs'
     : ''
 
-  // Create + revoke the object URL inside the SAME effect — in React 18
-  // Strict Mode the cleanup fires immediately after mount, and a useMemo
-  // value isn't recomputed on remount, which would leave us pointing at a
-  // revoked URL. Owning the lifetime in one effect avoids that.
   const [beforeUrl, setBeforeUrl] = useState<string>('')
   useEffect(() => {
     if (!bodyPhoto) return
@@ -67,6 +63,10 @@ export function ResultScreen({
     setBeforeUrl(url)
     return () => URL.revokeObjectURL(url)
   }, [bodyPhoto])
+
+  useEffect(() => {
+    checkCredits().then(setCredits)
+  }, [])
 
   useEffect(() => {
     if (data.concepts.length > prevCount.current) {
@@ -119,15 +119,12 @@ export function ResultScreen({
         navigator.canShare?.(shareData) &&
         'share' in navigator
       ) {
-        // Mobile native share sheet (WhatsApp, Instagram, etc. all appear)
         await navigator.share(shareData)
         setShareToast('Shared!')
       } else if (typeof navigator !== 'undefined' && 'share' in navigator) {
-        // Desktop browser share without file
         await navigator.share({ title: 'TattooVisionAI', text: shareText, url: siteUrl })
         setShareToast('Shared!')
       } else {
-        // Fallback: copy link to clipboard
         try {
           await window.navigator.clipboard.writeText(shareText)
           setShareToast('Link copied — paste to share!')
@@ -144,8 +141,8 @@ export function ResultScreen({
   }
 
   async function addOneVariation() {
-    // Check credits before making the call
     const currentCredits = await checkCredits()
+    setCredits(currentCredits)
     if (currentCredits <= 0) {
       onCreditsChange?.(0)
       setShowPaywall(true)
@@ -160,7 +157,6 @@ export function ResultScreen({
           ? { ...answers, couple_pair_id: data.couple.pair_id }
           : answers
 
-      // Pass how many concepts already exist so backend picks a different motif slot
       const answersWithOffset: FlowAnswers = {
         ...coupleAnswers,
         run_offset: String(data.concepts.length),
@@ -173,94 +169,123 @@ export function ResultScreen({
           : isCouple && couplePhotos
           ? await generateCoupleTattoos(couplePhotos.a, couplePhotos.b, answersWithOffset)
           : await generateTattoos(bodyPhoto, flowId, answersWithOffset, 1, referenceImage ?? null)
+
+      if ((more as { creditsRemaining?: number }).creditsRemaining !== undefined) {
+        const remaining = (more as { creditsRemaining?: number }).creditsRemaining!
+        setCredits(remaining)
+        onCreditsChange?.(remaining)
+      } else {
+        setCredits((c) => (c != null ? Math.max(0, c - 1) : c))
+      }
+
       onAppendConcepts(more)
     } catch (e) {
-      if ((e as any)?.status === 402) {
+      if ((e as { status?: number }).status === 402) {
         onCreditsChange?.(0)
+        setCredits(0)
         setShowPaywall(true)
         return
       }
-      setMoreError(e instanceof Error ? e.message : 'Could not add variation')
+      setMoreError(e instanceof Error ? e.message : 'Could not generate another design')
     } finally {
       setMoreLoading(false)
     }
   }
 
-  const lastScore = data.concepts[data.concepts.length - 1]?.advisory_score
-  const hintA = lastScore != null ? Math.max(72, lastScore - 3) : 88
-  const hintB = lastScore != null ? Math.min(98, lastScore + 4) : 96
+  const outOfCredits = credits !== null && credits <= 0
+  const generateLabel = moreLoading
+    ? 'Generating…'
+    : outOfCredits
+    ? 'Get 5 more previews — $5'
+    : 'Generate another design'
+  const generateSubtext = outOfCredits
+    ? 'You used your free preview. Unlock 5 more styles.'
+    : credits === 1
+    ? '1 free preview left — try a different style'
+    : credits != null && credits > 1
+    ? `${credits} previews left — explore more styles`
+    : 'Try a different style on your photo'
 
-  const cols = data.concepts.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2 lg:grid-cols-3'
+  const canGenerateMore = !moreLoading && data.concepts.length < 6 && !(isCouple && !couplePhotos)
 
   if (showPaywall) {
     return <PaymentScreen onBack={() => setShowPaywall(false)} />
   }
 
-  return (
-    <div className="max-w-5xl mx-auto px-4 py-10">
-      <button
-        type="button"
-        onClick={onBack}
-        className="text-sm text-ink-100/50 hover:text-ink-100 mb-4 inline-flex items-center gap-1"
-      >
-        <ChevronLeft className="w-4 h-4" /> New run
-      </button>
+  function GenerateMoreButton({
+    className = '',
+    size = 'large',
+  }: {
+    className?: string
+    size?: 'large' | 'compact'
+  }) {
+    const compact = size === 'compact'
+    const label = moreLoading
+      ? 'Generating…'
+      : outOfCredits
+      ? 'Get 5 more previews — $5'
+      : compact
+      ? 'Generate another design'
+      : generateLabel
 
-      {isScar && (
-        <div
-          className={
-            isSelfHarm
-              ? 'mb-6 rounded-2xl border border-accent/40 bg-gradient-to-br from-accent/10 to-ink-900/60 p-5'
-              : 'mb-6 rounded-2xl border border-border bg-ink-900/50 p-5'
-          }
+    return (
+      <div className={className}>
+        <button
+          type="button"
+          disabled={!canGenerateMore}
+          onClick={addOneVariation}
+          className={`w-full inline-flex items-center justify-center gap-2 rounded-full font-bold transition active:scale-[0.98] disabled:opacity-50 bg-accent text-ink-950 shadow-lg shadow-accent/30 animate-cta-pulse touch-manipulation ${
+            compact ? 'px-4 py-2.5 text-sm' : 'px-5 py-3.5 text-base'
+          }`}
         >
-          <div className="flex items-start gap-3">
-            <Heart
-              className={
-                isSelfHarm
-                  ? 'w-5 h-5 text-accent shrink-0 mt-0.5'
-                  : 'w-5 h-5 text-accent/70 shrink-0 mt-0.5'
-              }
-            />
-            <div>
-              <p className="text-sm font-medium text-ink-100">
-                {isSelfHarm
-                  ? 'You took a brave step.'
-                  : 'A cover-up is a transformation.'}
-              </p>
-              <p className="text-sm text-ink-100/70 mt-1">
-                {isSelfHarm
-                  ? 'These previews are a planning tool — not a finished journey. Take your time, talk to a licensed artist, and reach out to support if you need it.'
-                  : 'Slide the line below to compare your photo with the proposed cover-up. Share it, save it, or refine it.'}
-              </p>
-              {isSelfHarm && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <a
-                    href="https://findahelpline.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs rounded-full border border-accent/40 px-3 py-1 text-accent/90 hover:bg-accent/10"
-                  >
-                    Find a helpline →
-                  </a>
-                  <a
-                    href="https://www.crisistextline.org/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs rounded-full border border-accent/40 px-3 py-1 text-accent/90 hover:bg-accent/10"
-                  >
-                    Crisis text line →
-                  </a>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+          {moreLoading ? (
+            <Loader2 className={compact ? 'w-4 h-4 animate-spin' : 'w-5 h-5 animate-spin'} />
+          ) : outOfCredits ? (
+            <Zap className={compact ? 'w-4 h-4' : 'w-5 h-5'} />
+          ) : (
+            <Sparkles className={compact ? 'w-4 h-4' : 'w-5 h-5'} />
+          )}
+          {label}
+        </button>
+        {!compact && (
+          <>
+            <p className="text-center text-[11px] text-ink-100/45 mt-1.5">{generateSubtext}</p>
+            {moreError && <p className="text-xs text-red-400/90 mt-2 text-center">{moreError}</p>}
+          </>
+        )}
+        {compact && moreError && (
+          <p className="text-[10px] text-red-400/90 mt-1 text-center">{moreError}</p>
+        )}
+      </div>
+    )
+  }
 
-      <div className="flex flex-col lg:flex-row gap-6 mb-8">
-        <div className="flex-1 min-w-0">
-          {concept && showCompare && !isCouple ? (
+  return (
+    <>
+    <div className="max-w-5xl mx-auto px-4 pt-4 pb-24 w-full">
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-xs text-ink-100/50 hover:text-ink-100 mb-3 inline-flex items-center gap-1"
+        >
+          <ChevronLeft className="w-4 h-4" /> Start over
+        </button>
+
+        {isScar && isSelfHarm && (
+          <div className="mb-4 rounded-xl border border-accent/40 bg-accent/5 p-3 text-xs text-ink-100/70">
+            Take your time — these previews are for planning. Talk to a licensed artist when ready.
+          </div>
+        )}
+
+        <div className="mb-3">
+          <p className="text-xs font-medium text-accent mb-0.5">Your preview is ready</p>
+          <h2 className="font-display text-lg text-ink-100">Like it? Try more styles on your skin.</h2>
+        </div>
+
+        <GenerateMoreButton className="mb-4" />
+
+        <div className="rounded-2xl border border-border bg-ink-900/50 overflow-hidden mb-3">
+          {concept && showCompare && !isCouple && beforeUrl ? (
             <BeforeAfterSlider
               beforeSrc={beforeUrl}
               afterSrc={dataUrl(concept)}
@@ -268,190 +293,139 @@ export function ResultScreen({
               afterLabel={isScar ? 'Cover-up' : isFade ? `Faded ${fadeYearsLabel}` : 'After'}
             />
           ) : (
-            <div className="rounded-2xl border border-border bg-ink-900/50 overflow-hidden">
-              {concept && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={dataUrl(concept)}
-                  alt="Tattoo preview"
-                  className="w-full h-auto max-h-[65vh] object-contain bg-black/40"
-                />
-              )}
-            </div>
-          )}
-
-          {concept && !isCouple && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCompare((v) => !v)}
-                className="text-xs rounded-full border border-border px-3 py-1.5 text-ink-100/80 hover:bg-ink-800/60"
-              >
-                {showCompare ? 'View design only' : 'Compare before / after'}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDownload(concept)}
-                className="inline-flex items-center gap-1.5 text-xs rounded-full border border-border px-3 py-1.5 text-ink-100/80 hover:bg-ink-800/60"
-              >
-                <Download className="w-3.5 h-3.5" /> Download
-              </button>
-              <button
-                type="button"
-                onClick={() => handleShare(concept)}
-                className="inline-flex items-center gap-1.5 text-xs rounded-full border border-accent/40 px-3 py-1.5 text-accent hover:bg-accent/10"
-              >
-                <Share2 className="w-3.5 h-3.5" /> Share
-              </button>
-            </div>
-          )}
-          {concept && isCouple && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => handleDownload(concept)}
-                className="inline-flex items-center gap-1.5 text-xs rounded-full border border-border px-3 py-1.5 text-ink-100/80 hover:bg-ink-800/60"
-              >
-                <Download className="w-3.5 h-3.5" /> Download
-              </button>
-              <button
-                type="button"
-                onClick={() => handleShare(concept)}
-                className="inline-flex items-center gap-1.5 text-xs rounded-full border border-accent/40 px-3 py-1.5 text-accent hover:bg-accent/10"
-              >
-                <Share2 className="w-3.5 h-3.5" /> Share
-              </button>
-            </div>
+            concept && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={dataUrl(concept)}
+                alt="Tattoo preview"
+                className="w-full h-auto max-h-[42dvh] sm:max-h-[55vh] object-contain bg-black/40"
+              />
+            )
           )}
         </div>
 
         {concept && (
-          <div className="lg:w-72 shrink-0 rounded-2xl border border-border bg-ink-900/60 p-5 flex flex-col gap-3">
-            <p className="text-2xl font-semibold text-accent">
-              {isFade
-                ? fadeYearsLabel
-                : concept.advisory_score != null
-                ? `${concept.advisory_score}%`
-                : '—'}
-              <span className="text-sm font-normal text-ink-100/50 ml-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+            {!isCouple && (
+              <button
+                type="button"
+                onClick={() => setShowCompare((v) => !v)}
+                className="group flex flex-col items-center gap-1.5 rounded-xl border border-border/70 bg-gradient-to-b from-ink-800/70 to-ink-900/50 px-3 py-3 text-xs font-semibold text-ink-100/90 hover:border-accent/45 hover:shadow-lg hover:shadow-accent/5 active:scale-[0.97] transition touch-manipulation"
+              >
+                <span className="rounded-full bg-accent/15 p-2 group-hover:bg-accent/25 transition">
+                  <LayoutGrid className="w-4 h-4 text-accent" />
+                </span>
+                {showCompare ? 'Design only' : 'Compare'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => handleDownload(concept)}
+              className="group flex flex-col items-center gap-1.5 rounded-xl border border-border/70 bg-gradient-to-b from-ink-800/70 to-ink-900/50 px-3 py-3 text-xs font-semibold text-ink-100/90 hover:border-accent/45 hover:shadow-lg hover:shadow-accent/5 active:scale-[0.97] transition touch-manipulation"
+            >
+              <span className="rounded-full bg-accent/15 p-2 group-hover:bg-accent/25 transition">
+                <Download className="w-4 h-4 text-accent" />
+              </span>
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => handleShare(concept)}
+              className="group flex flex-col items-center gap-1.5 rounded-xl border border-accent/60 bg-gradient-to-b from-accent/20 to-accent/5 px-3 py-3 text-xs font-bold text-accent hover:from-accent/30 hover:to-accent/10 hover:shadow-lg hover:shadow-accent/15 active:scale-[0.97] transition touch-manipulation"
+            >
+              <span className="rounded-full bg-accent/25 p-2 group-hover:bg-accent/35 transition">
+                <Share2 className="w-4 h-4" />
+              </span>
+              Share
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSave(concept)}
+              className="group flex flex-col items-center gap-1.5 rounded-xl border border-border/70 bg-gradient-to-b from-ink-800/70 to-ink-900/50 px-3 py-3 text-xs font-semibold text-ink-100/90 hover:border-accent/45 hover:shadow-lg hover:shadow-accent/5 active:scale-[0.97] transition touch-manipulation"
+            >
+              <span className="rounded-full bg-accent/15 p-2 group-hover:bg-accent/25 transition">
+                <Bookmark className="w-4 h-4 text-accent" />
+              </span>
+              Bookmark
+            </button>
+          </div>
+        )}
+
+        {data.concepts.length > 1 && (
+          <div className="grid gap-2 grid-cols-3 sm:grid-cols-4 mb-4">
+            {data.concepts.map((c, i) => (
+              <button
+                key={`${c.id}-${i}`}
+                type="button"
+                onClick={() => setSelected(i)}
+                className={`rounded-lg border text-left overflow-hidden transition ${
+                  selected === i ? 'border-accent ring-1 ring-accent/30' : 'border-border'
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={dataUrl(c)} alt="" className="w-full h-16 object-cover" />
+                <div className="p-1.5">
+                  <p className="text-[10px] font-semibold text-accent">
+                    {c.advisory_score != null ? `${c.advisory_score}%` : `#${i + 1}`}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {concept && (
+          <div className="rounded-xl border border-border bg-ink-900/60 p-4 mb-4">
+            <p className="text-lg font-semibold text-accent">
+              {isFade ? fadeYearsLabel : concept.advisory_score != null ? `${concept.advisory_score}%` : '—'}
+              <span className="text-xs font-normal text-ink-100/50 ml-2">
                 {isFade ? 'simulated wear' : 'advisory fit'}
               </span>
             </p>
-            <div>
-              <p className="text-sm text-ink-100/70">{concept.style_label}</p>
-              <p className="text-sm text-ink-100/55">{concept.coverage_label}</p>
-            </div>
-            <p className="text-sm text-ink-100/80 leading-relaxed">{concept.explanation}</p>
-            <div className="mt-auto pt-3 flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => handleDownload(concept)}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-sm text-ink-100 hover:bg-ink-800/80 w-full"
-              >
-                <Download className="w-4 h-4" /> Download
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSave(concept)}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-sm text-ink-100 hover:bg-ink-800/80 w-full"
-              >
-                <Bookmark className="w-4 h-4" /> Save concept
-              </button>
-              <Link
-                href="/compare"
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-ink-950 w-full"
-              >
-                <LayoutGrid className="w-4 h-4" /> Compare saved
-              </Link>
-            </div>
+            <p className="text-xs text-ink-100/70 mt-1">{concept.style_label} · {concept.coverage_label}</p>
+            <p className="text-xs text-ink-100/60 mt-2 leading-relaxed">{concept.explanation}</p>
           </div>
         )}
-      </div>
 
-      {data.concepts.length > 1 && (
-        <div className={`grid gap-4 mb-6 grid-cols-2 md:grid-cols-3 lg:grid-cols-4`}>
-          {data.concepts.map((c, i) => (
-            <button
-              key={`${c.id}-${i}`}
-              type="button"
-              onClick={() => setSelected(i)}
-              className={`rounded-xl border text-left overflow-hidden transition ${
-                selected === i ? 'border-accent ring-1 ring-accent/30' : 'border-border hover:border-ink-100/20'
-              }`}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={dataUrl(c)} alt="" className="w-full h-24 object-cover" />
-              <div className="p-2">
-                <p className="text-sm font-semibold text-accent">
-                  {c.advisory_score != null ? `${c.advisory_score}%` : '—'}
-                </p>
-                <p className="text-xs text-ink-100/55 mt-0.5">{c.style_label}</p>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
+        {concept && !isFade && (
+          <details className="rounded-xl border border-border bg-ink-900/40 mb-4">
+            <summary className="px-4 py-3 text-xs font-medium text-ink-100/60 cursor-pointer">
+              Fit breakdown · {data.fit.score}
+            </summary>
+            <div className="px-4 pb-4">
+              <p className="text-xs text-ink-100/55 mb-2">{data.fit.summary}</p>
+              <ul className="grid grid-cols-2 gap-1.5 text-[10px] text-ink-100/50">
+                {data.fit.factors.map((f) => (
+                  <li key={f.key} className="flex justify-between gap-1 border border-border/60 rounded px-2 py-1">
+                    <span>{f.label}</span>
+                    <span>{f.value}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[10px] text-ink-100/35 mt-2">{data.disclaimer}</p>
+            </div>
+          </details>
+        )}
 
-      <div className="mb-8">
-        <button
-          type="button"
-          disabled={moreLoading || data.concepts.length >= 6 || (isCouple && !couplePhotos)}
-          onClick={addOneVariation}
-          className="inline-flex items-center gap-2 rounded-full border border-accent/40 px-4 py-2 text-sm text-accent hover:bg-accent/10 disabled:opacity-40"
+        <Link
+          href="/compare"
+          className="inline-flex items-center gap-1.5 text-xs text-ink-100/40 hover:text-accent mb-4"
         >
-          {moreLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          {moreLoading ? 'Working…' : 'Add one more variation'}
-        </button>
-        <p className="text-xs text-ink-100/45 mt-2 max-w-md">
-          {isFade
-            ? `Extra runs explore nearby fade textures at the same ${fadeYearsLabel} mark — useful if a particular result feels too aggressive or too soft.`
-            : `Extra runs explore nearby fits — you might see something closer to a ${hintA}% or ${hintB}% advisory readout than your current pick (not guaranteed; each run is fresh).`}
+          <LayoutGrid className="w-3.5 h-3.5" /> Compare saved designs
+        </Link>
+
+        {savedToast && <p className="text-xs text-accent mb-2">Saved — open Compare to see side by side.</p>}
+        {shareToast && <p className="text-xs text-accent mb-2">{shareToast}</p>}
+    </div>
+
+    <div className="fixed bottom-0 inset-x-0 z-40 border-t border-accent/20 bg-ink-950/95 backdrop-blur-md px-4 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_rgba(0,0,0,0.35)]">
+      <div className="max-w-lg mx-auto">
+        <GenerateMoreButton size="compact" />
+        <p className="text-center text-[10px] text-ink-100/40 mt-1">
+          {outOfCredits ? 'Unlock 5 more styles on your photo' : generateSubtext}
         </p>
       </div>
-      {moreError && <p className="text-sm text-red-400/90 mb-6">{moreError}</p>}
-
-      <p className="text-sm text-ink-100/50 mb-8">
-        {isFade
-          ? 'Aging simulation only — actual fade depends on placement, sun exposure, skin type and aftercare. Use this as a long-term planning aid, not a guarantee.'
-          : 'Preview uses your photo\u2019s skin tone and lighting \u2014 not a prediction of healed ink. Discuss details with a licensed artist.'}
-      </p>
-
-      {concept && !isFade && (
-        <div className="rounded-2xl border border-border bg-ink-900/60 p-6 mb-8">
-          <h3 className="font-display text-xl text-ink-100 mb-2">
-            Overall advisory fit: {data.fit.score}
-          </h3>
-          <p className="text-sm text-ink-100/65 mb-4">{data.fit.summary}</p>
-          <ul className="grid sm:grid-cols-2 gap-2 text-xs text-ink-100/55">
-            {data.fit.factors.map((f) => (
-              <li key={f.key} className="flex justify-between gap-2 border border-border/60 rounded-lg px-2 py-1.5">
-                <span>{f.label}</span>
-                <span className="text-ink-100/80">{f.value}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs text-ink-100/35 mt-4">{data.disclaimer}</p>
-        </div>
-      )}
-
-      {concept && isFade && (
-        <div className="rounded-2xl border border-border bg-ink-900/60 p-6 mb-8">
-          <h3 className="font-display text-xl text-ink-100 mb-2">
-            Aging simulation · {fadeYearsLabel}
-          </h3>
-          <p className="text-sm text-ink-100/65">
-            Drag the slider above to compare today vs. simulated wear. Real-world
-            fading depends on placement, sun exposure, skin type and aftercare —
-            this is a planning aid, not a medical or dermatological prediction.
-          </p>
-          <p className="text-xs text-ink-100/35 mt-4">{data.disclaimer}</p>
-        </div>
-      )}
-
-      {savedToast && (
-        <p className="text-sm text-accent mt-3">Saved — open Compare to see side by side.</p>
-      )}
-      {shareToast && <p className="text-sm text-accent mt-3">{shareToast}</p>}
     </div>
+    </>
   )
 }

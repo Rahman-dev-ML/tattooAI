@@ -43,13 +43,13 @@ export function PaymentScreen({ onBack }: PaymentScreenProps) {
           Free previews used up
         </h2>
         <p className="text-ink-100/55 text-sm mb-8">
-          You&apos;ve used your 2 free generations. Get 5 more concepts for $1.
+          You&apos;ve used your free preview. Get 5 more concepts for $5.
         </p>
 
         {/* Price */}
         <div className="rounded-2xl border border-border bg-ink-800 p-5 mb-6 text-center">
           <div className="text-4xl font-bold text-ink-100 mb-0.5">
-            $1 <span className="text-xl text-ink-100/55">USD</span>
+            $5 <span className="text-xl text-ink-100/55">USD</span>
           </div>
           <div className="text-xs text-ink-100/40">One-time · No subscription · No account needed</div>
         </div>
@@ -57,8 +57,8 @@ export function PaymentScreen({ onBack }: PaymentScreenProps) {
         {/* Features */}
         <ul className="space-y-3 mb-8">
           {[
-            '5 AI-generated tattoo concepts',
-            'All flows — cover-up, fade, couple & more',
+            '5 AI-generated tattoo previews',
+            'Try more styles & variations',
             'Pay securely via Visa or Mastercard',
           ].map((text) => (
             <li key={text} className="flex items-start gap-3">
@@ -87,7 +87,7 @@ export function PaymentScreen({ onBack }: PaymentScreenProps) {
               Connecting to payment…
             </>
           ) : (
-            'Pay $1 — Get 5 concepts'
+            'Pay $5 — Get 5 previews'
           )}
         </button>
 

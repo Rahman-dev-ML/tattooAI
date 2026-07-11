@@ -4,18 +4,19 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import type { FlowAnswers, FlowId, GenerateResponse } from '@/lib/types'
-import { FLOW_CONFIGS, getActiveSteps } from '@/lib/flowConfigs'
+import { FLOW_CONFIGS, getActiveSteps, type StepDef } from '@/lib/flowConfigs'
 import { generateCoupleTattoos, generateTattoos, checkCredits, getDeviceId, initDeviceId } from '@/lib/api'
 import { ResultScreen } from '@/components/ResultScreen'
 import { ScarMarker, type ScarMark } from '@/components/ScarMarker'
 import { PaymentScreen } from '@/components/PaymentScreen'
 import { PhotoUploader } from '@/components/PhotoUploader'
+import { consumePendingBodyPhoto } from '@/lib/pendingPhoto'
 
 const REGION_ONLY_FLOWS: FlowId[] = ['new_to_tattoos', 'from_idea', 'deep_meaning']
 
 export function FlowWizard({ flowId }: { flowId: FlowId }) {
   const config = FLOW_CONFIGS[flowId]
-  const [stepIndex, setStepIndex] = useState(0)
+  const [groupIndex, setGroupIndex] = useState(0)
   const [raw, setRaw] = useState<Record<string, string | string[]>>({})
   const [chips, setChips] = useState<string[]>([])
   const [file, setFile] = useState<File | null>(null)
@@ -28,6 +29,7 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
   const [result, setResult] = useState<GenerateResponse | null>(null)
   const [showPaywall, setShowPaywall] = useState(false)
   const [credits, setCredits] = useState<number | null>(null)
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string>('')
 
   const SESSION_KEY = `tattoo-result-${flowId}`
 
@@ -48,6 +50,25 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
     initDeviceId().then(() => checkCredits().then(setCredits))
   }, [])
 
+  // Restore body photo uploaded on the homepage
+  useEffect(() => {
+    if (config.uploadsInStepsOnly || file) return
+    consumePendingBodyPhoto().then((pending) => {
+      if (pending) setFile(pending)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!file) {
+      setPhotoPreviewUrl('')
+      return
+    }
+    const url = URL.createObjectURL(file)
+    setPhotoPreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
+
   const uploadsOnly = config.uploadsInStepsOnly === true
   const hasBodyPhoto = !uploadsOnly && file !== null
 
@@ -62,56 +83,78 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
     return list
   }, [flowId, hasBodyPhoto, raw])
 
+  const uiGroups = useMemo((): StepDef[][] => {
+    const groups: StepDef[][] = []
+    for (let i = 0; i < steps.length; ) {
+      if (
+        flowId === 'new_to_tattoos' &&
+        steps[i].id === 'look' &&
+        steps[i + 1]?.id === 'coverage'
+      ) {
+        groups.push([steps[i], steps[i + 1]])
+        i += 2
+      } else {
+        groups.push([steps[i]])
+        i += 1
+      }
+    }
+    return groups
+  }, [steps, flowId])
+
   useEffect(() => {
-    setStepIndex((i) => Math.min(i, Math.max(0, steps.length - 1)))
-  }, [steps.length])
+    setGroupIndex((i) => Math.min(i, Math.max(0, uiGroups.length - 1)))
+  }, [uiGroups.length])
 
-  const step = steps[stepIndex]
-  const isLast = stepIndex >= steps.length - 1
+  const currentGroup = uiGroups[groupIndex] ?? []
+  const isLastGroup = groupIndex >= uiGroups.length - 1
 
-  const canNext = useMemo(() => {
-    if (!step) return false
-    if (step.type === 'goal_chips') {
+  function stepCanProceed(s: StepDef): boolean {
+    if (s.type === 'goal_chips') {
       return Boolean(raw.tattoo_goal) && chips.length >= 1
     }
-    if (step.type === 'chips') return chips.length >= 1
-    if (step.type === 'file') {
-      if (step.id === 'reference_image') {
+    if (s.type === 'chips') return chips.length >= 1
+    if (s.type === 'file') {
+      if (s.id === 'reference_image') {
         if (flowId === 'photo_convert') return referenceFile !== null
         return true
       }
-      if (step.id === 'placement_image') {
+      if (s.id === 'placement_image') {
         if (file === null) return false
         if (flowId === 'scar_coverup' && scarMark === null) return false
         return true
       }
-      if (step.id === 'person_a_image') return coupleFileA !== null
-      if (step.id === 'person_b_image') return coupleFileB !== null
+      if (s.id === 'person_a_image') return coupleFileA !== null
+      if (s.id === 'person_b_image') return coupleFileB !== null
       return false
     }
-    const v = raw[step.id]
-    if (step.type === 'text') {
-      if (step.id === 'script_quote') {
+    const v = raw[s.id]
+    if (s.type === 'text') {
+      if (s.id === 'script_quote') {
         const form = String(raw.form || '')
         if (['script', 'symbol_script'].includes(form)) {
           return typeof v === 'string' && v.trim().length > 0
         }
         return true
       }
-      if (step.id === 'style_notes' && flowId === 'from_idea') {
+      if (s.id === 'style_notes' && flowId === 'from_idea') {
         return typeof v === 'string' && v.trim().length >= 3
       }
-      if (step.id === 'scar_description') {
+      if (s.id === 'scar_description') {
         return true
       }
       return typeof v === 'string' && v.trim().length > 2
     }
     return typeof v === 'string' && v.length > 0
-  }, [step, raw, chips, file, scarMark, flowId, coupleFileA, coupleFileB, referenceFile])
+  }
 
-  function setChoice(value: string) {
-    if (!step) return
-    setRaw((prev) => ({ ...prev, [step.id]: value }))
+  const canNext = useMemo(
+    () => currentGroup.length > 0 && currentGroup.every(stepCanProceed),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [currentGroup, raw, chips, file, scarMark, flowId, coupleFileA, coupleFileB, referenceFile]
+  )
+
+  function setChoiceFor(stepId: string, value: string) {
+    setRaw((prev) => ({ ...prev, [stepId]: value }))
   }
 
   function toggleChip(value: string) {
@@ -308,23 +351,44 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
     'block w-full text-sm text-ink-100 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border file:border-border file:bg-ink-800 file:text-ink-100 file:font-medium hover:file:bg-ink-700 cursor-pointer'
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-10">
-      <Link href="/" className="text-sm text-ink-100/50 hover:text-ink-100 mb-6 inline-block">
+    <div className="max-w-lg mx-auto px-4 pt-5 pb-8 w-full space-y-4">
+      <Link href="/" className="text-xs text-ink-100/50 hover:text-ink-100 inline-block">
         ← Home
       </Link>
-      <div className="flex items-start justify-between mb-1">
-        <h1 className="font-display text-3xl text-ink-100">{config.title}</h1>
-        {credits !== null && (
-          <span className={`text-xs px-2.5 py-1 rounded-full border font-medium mt-1 ${
-            credits <= 0
-              ? 'border-red-500/30 bg-red-500/10 text-red-400'
-              : 'border-border bg-ink-800 text-ink-100/60'
-          }`}>
-            {credits <= 0 ? 'No credits' : `${credits} credit${credits === 1 ? '' : 's'} left`}
-          </span>
+
+      <div className="rounded-2xl border border-border/80 bg-gradient-to-b from-ink-900/70 to-ink-950/50 p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h1 className="font-display text-3xl sm:text-4xl text-ink-100 leading-tight">{config.title}</h1>
+            <p className="text-ink-100/60 text-sm sm:text-base mt-2 leading-relaxed">{config.description}</p>
+          </div>
+          {credits !== null && (
+            <span className={`text-xs px-2.5 py-1 rounded-full border font-medium shrink-0 ${
+              credits <= 0
+                ? 'border-red-500/30 bg-red-500/10 text-red-400'
+                : 'border-accent/30 bg-accent/10 text-accent'
+            }`}>
+              {credits <= 0 ? 'No credits' : `${credits} left`}
+            </span>
+          )}
+        </div>
+
+        {flowId === 'new_to_tattoos' && file && photoPreviewUrl && (
+          <div className="rounded-xl border border-accent/35 bg-ink-950/70 p-4 flex items-center gap-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photoPreviewUrl}
+              alt="Your body photo"
+              className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl object-cover border-2 border-accent/30 shrink-0 shadow-lg shadow-black/30"
+            />
+            <div>
+              <p className="text-base sm:text-lg font-semibold text-ink-100">Your body photo</p>
+              <p className="text-sm text-accent mt-1 font-medium">Photo uploaded ✓</p>
+              <p className="text-xs text-ink-100/45 mt-1">Placement read from your picture</p>
+            </div>
+          </div>
         )}
       </div>
-      <p className="text-ink-100/55 text-sm mb-8">{config.description}</p>
 
       {flowId === 'scar_coverup' && raw.scar_type === 'self_harm' && (
         <div className="mb-6 rounded-2xl border border-accent/40 bg-accent/5 p-4">
@@ -347,8 +411,8 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
         </div>
       )}
 
-      {!uploadsOnly && (
-        <div className="mb-6">
+      {!uploadsOnly && !(flowId === 'new_to_tattoos' && file) && (
+        <div>
           <PhotoUploader
             value={file}
             onChange={setFile}
@@ -364,171 +428,175 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
         </div>
       )}
 
-      <div className="mb-2 flex justify-between text-xs text-ink-100/40">
-        <span>
-          Step {stepIndex + 1} / {steps.length || 1}
-        </span>
+      <div className="text-sm font-semibold text-accent">
+        Step {groupIndex + 1} of {uiGroups.length || 1}
       </div>
 
-      {step && (
-        <div className="rounded-2xl border border-border bg-ink-900/80 p-6 min-h-[180px]">
-          <h2 className="font-display text-xl text-ink-100 mb-1">{step.title}</h2>
-          {step.subtitle && <p className="text-sm text-ink-100/55 mb-4">{step.subtitle}</p>}
+      {currentGroup.length > 0 && (
+        <div className="rounded-2xl border border-border bg-ink-900/80 p-4 sm:p-5">
+          {currentGroup.map((subStep, idx) => (
+            <div key={subStep.id} className={idx > 0 ? 'mt-5 pt-5 border-t border-border/60' : ''}>
+              <h2 className="font-display text-base sm:text-lg text-ink-100 mb-0.5">{subStep.title}</h2>
+              {subStep.subtitle && <p className="text-xs text-ink-100/55 mb-3">{subStep.subtitle}</p>}
 
-          {step.type === 'goal_chips' && step.goalOptions && step.chipOptions && (
-            <div className="space-y-5">
-              <div>
-                <p className="text-xs text-ink-100/45 mb-2 uppercase tracking-wide">Direction</p>
-                <div className="grid gap-2">
-                  {step.goalOptions.map((o) => (
-                    <button
-                      key={o.value}
-                      type="button"
-                      onClick={() => setRaw((p) => ({ ...p, tattoo_goal: o.value }))}
-                      className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
-                        raw.tattoo_goal === o.value
-                          ? 'border-accent bg-accent/10 text-ink-100'
-                          : 'border-border bg-ink-950/50 text-ink-100/80'
-                      }`}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs text-ink-100/45 mb-2 uppercase tracking-wide">
-                  Themes — pick at least one
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {step.chipOptions.map((o) => (
-                    <button
-                      key={o.value}
-                      type="button"
-                      onClick={() => toggleChip(o.value)}
-                      className={`rounded-full px-3 py-1.5 text-sm border transition ${
-                        chips.includes(o.value)
-                          ? 'border-accent bg-accent/15 text-accent'
-                          : 'border-border text-ink-100/75'
-                      }`}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {step.type === 'text' && (
-            <textarea
-              className="w-full rounded-xl bg-ink-950 border border-border px-3 py-2 text-ink-100 placeholder:text-ink-100/35 min-h-[100px]"
-              placeholder={step.placeholder}
-              value={typeof raw[step.id] === 'string' ? (raw[step.id] as string) : ''}
-              onChange={(e) => setRaw((p) => ({ ...p, [step.id]: e.target.value }))}
-            />
-          )}
-
-          {step.type === 'choice' && step.options && (
-            <div className="grid gap-2">
-              {step.options.map((o) => (
-                <button
-                  key={o.value}
-                  type="button"
-                  onClick={() => setChoice(o.value)}
-                  className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
-                    raw[step.id] === o.value
-                      ? 'border-accent bg-accent/10 text-ink-100'
-                      : 'border-border bg-ink-950/50 text-ink-100/80 hover:border-ink-100/20'
-                  }`}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {step.type === 'file' && (
-            <div>
-              <PhotoUploader
-                value={
-                  step.id === 'reference_image' ? referenceFile
-                  : step.id === 'person_a_image' ? coupleFileA
-                  : step.id === 'person_b_image' ? coupleFileB
-                  : file
-                }
-                onChange={(f) => {
-                  if (step.id === 'reference_image') setReferenceFile(f)
-                  else if (step.id === 'person_a_image') setCoupleFileA(f)
-                  else if (step.id === 'person_b_image') setCoupleFileB(f)
-                  else if (step.id === 'placement_image') {
-                    setFile(f)
-                    setScarMark(null)
-                  }
-                }}
-                hint={
-                  step.id === 'placement_image' ? (
-                    flowId === 'scar_coverup' ? 'Required — clear photo of the scar area' :
-                    flowId === 'tattoo_fade' ? 'Required — clear photo of the tattoo you want to age' :
-                    'Required — your skin, where the tattoo goes'
-                  ) :
-                  step.id === 'person_a_image' ? 'Required — Partner A placement photo' :
-                  step.id === 'person_b_image' ? 'Required — Partner B placement photo' :
-                  undefined
-                }
-              />
-
-              {step.id === 'placement_image' && flowId === 'scar_coverup' && file && (
-                <div className="mt-5 pt-5 border-t border-border">
-                  <p className="text-sm font-medium text-ink-100 mb-1">
-                    Now tap the scar in your photo
-                  </p>
-                  <p className="text-xs text-ink-100/55 mb-3">
-                    This is the most important step — it tells us exactly which area
-                    to design around. Drag the circle to fit the scar.
-                  </p>
-                  <ScarMarker
-                    imageFile={file}
-                    value={scarMark}
-                    onChange={setScarMark}
-                  />
-                  {!scarMark && (
-                    <p className="text-xs text-amber-300/80 mt-2">
-                      Tap on the scar to continue.
+              {subStep.type === 'goal_chips' && subStep.goalOptions && subStep.chipOptions && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[10px] text-ink-100/45 mb-1.5 uppercase tracking-wide">Direction</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {subStep.goalOptions.map((o) => (
+                        <button
+                          key={o.value}
+                          type="button"
+                          onClick={() => setRaw((p) => ({ ...p, tattoo_goal: o.value }))}
+                          className={`rounded-lg border px-3 py-2.5 text-left text-xs sm:text-sm transition ${
+                            raw.tattoo_goal === o.value
+                              ? 'border-accent bg-accent/10 text-ink-100'
+                              : 'border-border bg-ink-950/50 text-ink-100/80'
+                          }`}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-ink-100/45 mb-1.5 uppercase tracking-wide">
+                      Themes — pick at least one
                     </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {subStep.chipOptions.map((o) => (
+                        <button
+                          key={o.value}
+                          type="button"
+                          onClick={() => toggleChip(o.value)}
+                          className={`rounded-full px-2.5 py-1 text-xs border transition ${
+                            chips.includes(o.value)
+                              ? 'border-accent bg-accent/15 text-accent'
+                              : 'border-border text-ink-100/75'
+                          }`}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {subStep.type === 'text' && (
+                <textarea
+                  className="w-full rounded-xl bg-ink-950 border border-border px-3 py-2 text-ink-100 placeholder:text-ink-100/35 min-h-[100px]"
+                  placeholder={subStep.placeholder}
+                  value={typeof raw[subStep.id] === 'string' ? (raw[subStep.id] as string) : ''}
+                  onChange={(e) => setRaw((p) => ({ ...p, [subStep.id]: e.target.value }))}
+                />
+              )}
+
+              {subStep.type === 'choice' && subStep.options && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {subStep.options.map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => setChoiceFor(subStep.id, o.value)}
+                      className={`rounded-lg border px-3 py-2.5 text-left text-xs sm:text-sm transition ${
+                        raw[subStep.id] === o.value
+                          ? 'border-accent bg-accent/10 text-ink-100'
+                          : 'border-border bg-ink-950/50 text-ink-100/80 hover:border-ink-100/20'
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {subStep.type === 'file' && (
+                <div>
+                  <PhotoUploader
+                    value={
+                      subStep.id === 'reference_image' ? referenceFile
+                      : subStep.id === 'person_a_image' ? coupleFileA
+                      : subStep.id === 'person_b_image' ? coupleFileB
+                      : file
+                    }
+                    onChange={(f) => {
+                      if (subStep.id === 'reference_image') setReferenceFile(f)
+                      else if (subStep.id === 'person_a_image') setCoupleFileA(f)
+                      else if (subStep.id === 'person_b_image') setCoupleFileB(f)
+                      else if (subStep.id === 'placement_image') {
+                        setFile(f)
+                        setScarMark(null)
+                      }
+                    }}
+                    hint={
+                      subStep.id === 'placement_image' ? (
+                        flowId === 'scar_coverup' ? 'Required — clear photo of the scar area' :
+                        flowId === 'tattoo_fade' ? 'Required — clear photo of the tattoo you want to age' :
+                        'Required — your skin, where the tattoo goes'
+                      ) :
+                      subStep.id === 'person_a_image' ? 'Required — Partner A placement photo' :
+                      subStep.id === 'person_b_image' ? 'Required — Partner B placement photo' :
+                      undefined
+                    }
+                  />
+
+                  {subStep.id === 'placement_image' && flowId === 'scar_coverup' && file && (
+                    <div className="mt-5 pt-5 border-t border-border">
+                      <p className="text-sm font-medium text-ink-100 mb-1">
+                        Now tap the scar in your photo
+                      </p>
+                      <p className="text-xs text-ink-100/55 mb-3">
+                        This is the most important step — it tells us exactly which area
+                        to design around. Drag the circle to fit the scar.
+                      </p>
+                      <ScarMarker
+                        imageFile={file}
+                        value={scarMark}
+                        onChange={setScarMark}
+                      />
+                      {!scarMark && (
+                        <p className="text-xs text-amber-300/80 mt-2">
+                          Tap on the scar to continue.
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
             </div>
-          )}
+          ))}
         </div>
       )}
 
-      {error && <p className="text-red-400/90 text-sm mt-4">{error}</p>}
+      {error && <p className="text-red-400/90 text-sm">{error}</p>}
 
-      <div className="flex justify-between mt-8">
-        <button
-          type="button"
-          disabled={stepIndex === 0}
-          onClick={() => setStepIndex((i) => Math.max(0, i - 1))}
-          className="inline-flex items-center gap-1 text-sm text-ink-100/60 disabled:opacity-30"
-        >
-          <ChevronLeft className="w-4 h-4" /> Back
-        </button>
+      <div className="flex gap-2 pt-1">
+        {groupIndex > 0 && (
+          <button
+            type="button"
+            onClick={() => setGroupIndex((i) => Math.max(0, i - 1))}
+            className="shrink-0 inline-flex items-center justify-center gap-1 rounded-full border border-border px-4 py-3.5 text-sm text-ink-100/70 touch-manipulation"
+          >
+            <ChevronLeft className="w-4 h-4" /> Back
+          </button>
+        )}
 
-        {!isLast ? (
+        {!isLastGroup ? (
           <button
             type="button"
             disabled={!canNext}
-            onClick={() => setStepIndex((i) => i + 1)}
-            className="inline-flex items-center gap-1 rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-ink-950 disabled:opacity-40"
+            onClick={() => setGroupIndex((i) => i + 1)}
+            className="flex-1 inline-flex items-center justify-center gap-1 rounded-full bg-accent px-5 py-3.5 text-sm font-bold text-ink-950 disabled:opacity-40 shadow-lg shadow-accent/20 animate-cta-pulse touch-manipulation"
           >
-            Next <ChevronRight className="w-4 h-4" />
+            Next step <ChevronRight className="w-4 h-4" />
           </button>
         ) : (
           <button
             type="button"
             disabled={
+              !canNext ||
               (flowId === 'couple_tattoo'
                 ? String(raw.couple_mode || '') === 'complementary_split'
                   ? false
@@ -540,10 +608,10 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
                 : !file && !(REGION_ONLY_FLOWS.includes(flowId) && raw.body_region)) || loading
             }
             onClick={runGenerate}
-            className="inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-ink-950 disabled:opacity-40"
+            className="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3.5 text-sm font-bold text-ink-950 disabled:opacity-40 shadow-lg shadow-accent/20 animate-cta-pulse touch-manipulation"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {loading ? 'Generating…' : 'Generate preview'}
+            {loading ? 'Generating…' : 'Generate my preview'}
           </button>
         )}
       </div>

@@ -12,7 +12,7 @@ if os.path.exists(_data_dir):
 else:
     DB_PATH = os.environ.get("DB_PATH", "./tattoo.db")
 
-FREE_CREDITS = 2
+FREE_CREDITS = 1
 CREDITS_PER_PURCHASE = 5
 
 
@@ -21,7 +21,7 @@ async def init_db():
         await db.execute("""
             CREATE TABLE IF NOT EXISTS devices (
                 device_id TEXT PRIMARY KEY,
-                credits INTEGER NOT NULL DEFAULT 2,
+                credits INTEGER NOT NULL DEFAULT 1,
                 ip_address TEXT,
                 created_at REAL NOT NULL,
                 last_payment_at REAL

@@ -1,9 +1,9 @@
-import { QuickDesign } from '@/components/QuickDesign'
+import { redirect } from 'next/navigation'
 
 export const metadata = {
   title: 'Design your tattoo — TattooVisionAI',
 }
 
 export default function DesignPage() {
-  return <QuickDesign />
+  redirect('/flow/new_to_tattoos')
 }

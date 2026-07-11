@@ -7,7 +7,7 @@ import os
 import stripe
 
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
-STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "price_1TYBfY1omP2DLjOumzU8UF6P")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "price_1TreDo1omP2DLjOuJtfWWj5x")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
 stripe.api_key = STRIPE_SECRET_KEY
@@ -18,7 +18,7 @@ def create_checkout_session(
     success_url: str,
     cancel_url: str,
 ) -> stripe.checkout.Session:
-    """Create a Stripe Checkout Session for a one-time $1 purchase."""
+    """Create a Stripe Checkout Session for a one-time $5 purchase (5 credits)."""
     return stripe.checkout.Session.create(
         payment_method_types=["card"],
         line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],

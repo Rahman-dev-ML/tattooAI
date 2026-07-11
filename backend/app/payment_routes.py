@@ -54,7 +54,7 @@ async def initiate_payment(
         print(f"[Stripe] Session creation failed: {e}")
         raise HTTPException(status_code=502, detail="Could not connect to payment gateway")
 
-    await db.create_transaction(x_device_id, session.id, 100)  # $1.00 in cents
+    await db.create_transaction(x_device_id, session.id, 500)  # $5.00 in cents
 
     print(f"[Stripe] Session created: {session.id} for device {x_device_id}")
     return {"checkout_url": session.url, "session_id": session.id}

@@ -58,11 +58,11 @@ export async function checkCredits(): Promise<number> {
       headers: { 'X-Device-ID': getDeviceId() },
       signal: AbortSignal.timeout(5000),
     })
-    if (!res.ok) return 2
+    if (!res.ok) return 0
     const data = await res.json()
-    return data.credits ?? 2
+    return data.credits ?? 0
   } catch {
-    return 2
+    return 0
   }
 }
 
