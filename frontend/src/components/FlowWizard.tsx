@@ -10,7 +10,12 @@ import { ResultScreen } from '@/components/ResultScreen'
 import { ScarMarker, type ScarMark } from '@/components/ScarMarker'
 import { PaymentScreen } from '@/components/PaymentScreen'
 import { PhotoUploader } from '@/components/PhotoUploader'
-import { consumePendingBodyPhoto } from '@/lib/pendingPhoto'
+import { consumePendingBodyPhoto, hasPendingBodyPhoto } from '@/lib/pendingPhoto'
+
+const LOG = process.env.NODE_ENV === 'development'
+function log(...args: unknown[]) {
+  if (LOG) console.log('[FlowWizard]', ...args)
+}
 
 const REGION_ONLY_FLOWS: FlowId[] = ['new_to_tattoos', 'from_idea', 'deep_meaning']
 
@@ -30,16 +35,26 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
   const [showPaywall, setShowPaywall] = useState(false)
   const [credits, setCredits] = useState<number | null>(null)
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string>('')
+  const [photoRestoring, setPhotoRestoring] = useState(() => hasPendingBodyPhoto())
 
   const SESSION_KEY = `tattoo-result-${flowId}`
 
-  // Restore persisted result on mount (survives app-switching on mobile)
+  // Restore persisted result on mount — skip if user is starting fresh with a new photo
   useEffect(() => {
+    if (hasPendingBodyPhoto()) {
+      log('fresh session with pending photo — step 1, no old result')
+      setGroupIndex(0)
+      setResult(null)
+      return
+    }
     try {
       const saved = sessionStorage.getItem(SESSION_KEY)
       if (saved) {
         const parsed = JSON.parse(saved)
-        if (parsed?.concepts?.length > 0) setResult(parsed)
+        if (parsed?.concepts?.length > 0) {
+          log('restoring previous result from session')
+          setResult(parsed)
+        }
       }
     } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -52,10 +67,23 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
 
   // Restore body photo uploaded on the homepage
   useEffect(() => {
-    if (config.uploadsInStepsOnly || file) return
+    if (config.uploadsInStepsOnly) return
+    let cancelled = false
+    log('consume pending photo…')
     consumePendingBodyPhoto().then((pending) => {
-      if (pending) setFile(pending)
+      if (cancelled) return
+      if (pending) {
+        log('photo restored OK', pending.name)
+        setFile(pending)
+        setGroupIndex(0)
+      } else {
+        log('no pending photo found')
+      }
+      setPhotoRestoring(false)
     })
+    return () => {
+      cancelled = true
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -373,7 +401,14 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
           )}
         </div>
 
-        {flowId === 'new_to_tattoos' && file && photoPreviewUrl && (
+        {flowId === 'new_to_tattoos' && photoRestoring && (
+          <div className="rounded-xl border border-border bg-ink-950/70 p-4 flex items-center gap-3">
+            <Loader2 className="w-5 h-5 animate-spin text-accent shrink-0" />
+            <p className="text-sm text-ink-100/70">Loading your photo…</p>
+          </div>
+        )}
+
+        {flowId === 'new_to_tattoos' && !photoRestoring && file && photoPreviewUrl && (
           <div className="rounded-xl border border-accent/35 bg-ink-950/70 p-4 flex items-center gap-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img

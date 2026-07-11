@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowRight,
   CheckCircle2,
@@ -14,7 +14,17 @@ import {
 } from 'lucide-react'
 import { PhotoUploader } from './PhotoUploader'
 import { PageShell } from './PageShell'
-import { storePendingBodyPhoto } from '@/lib/pendingPhoto'
+import {
+  clearPendingBodyPhoto,
+  storePendingBodyPhoto,
+  FLOW_RESULT_KEY,
+  hasPendingBodyPhoto,
+} from '@/lib/pendingPhoto'
+
+const LOG = process.env.NODE_ENV === 'development'
+function log(...args: unknown[]) {
+  if (LOG) console.log('[HomePage]', ...args)
+}
 
 const TRUST = [
   { icon: Shield, t: 'Private & secure', d: 'Photos used only for your preview' },
@@ -23,47 +33,18 @@ const TRUST = [
   { icon: Clock, t: 'Under 5 minutes', d: 'From upload to design' },
 ]
 
-function PulsatingCta({
-  onClick,
-  loading,
-  label,
-  fullWidth,
-}: {
-  onClick: () => void
-  loading?: boolean
-  label: string
-  fullWidth?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={loading}
-      className={`inline-flex items-center justify-center gap-2.5 rounded-full bg-accent px-8 py-4 text-ink-950 font-bold text-base hover:bg-accent/90 active:scale-[0.97] transition shadow-lg shadow-accent/30 animate-cta-pulse disabled:opacity-60 cursor-pointer touch-manipulation ${
-        fullWidth ? 'w-full max-w-md' : ''
-      }`}
-    >
-      {loading ? (
-        <>
-          <Loader2 className="w-5 h-5 animate-spin" />
-          Starting…
-        </>
-      ) : (
-        <>
-          {label}
-          <ArrowRight className="w-5 h-5" />
-        </>
-      )}
-    </button>
-  )
-}
+const FLOW_PATH = '/flow/new_to_tattoos'
 
 export function HomePage() {
   const router = useRouter()
   const [bodyPhoto, setBodyPhoto] = useState<File | null>(null)
-  const [starting, setStarting] = useState(false)
+  const [photoPreparing, setPhotoPreparing] = useState(false)
+  const [photoReady, setPhotoReady] = useState(false)
+  const [navigating, setNavigating] = useState(false)
+  const [navError, setNavError] = useState<string | null>(null)
   const [highlightUpload, setHighlightUpload] = useState(false)
   const [paymentBanner, setPaymentBanner] = useState<{ credits: number } | null>(null)
+  const navLock = useRef(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -76,49 +57,94 @@ export function HomePage() {
   }, [])
 
   function scrollToUpload() {
-    const el = document.getElementById('upload')
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
+    document.getElementById('upload')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     setHighlightUpload(true)
     setTimeout(() => setHighlightUpload(false), 2000)
   }
 
-  async function goToFlow(file: File) {
-    await storePendingBodyPhoto(file)
-    router.push('/flow/new_to_tattoos')
-    setTimeout(() => {
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/flow/')) {
-        window.location.assign('/flow/new_to_tattoos')
-      }
-    }, 400)
-  }
-
-  async function handlePhotoChange(file: File | null) {
-    setBodyPhoto(file)
-    if (!file) return
-    setStarting(true)
+  async function preparePhoto(file: File) {
+    setPhotoPreparing(true)
+    setPhotoReady(false)
+    setNavError(null)
+    log('preparePhoto start', file.name)
     try {
-      await goToFlow(file)
+      await storePendingBodyPhoto(file)
+      setPhotoReady(true)
+      log('preparePhoto done')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not prepare photo'
+      console.error('[HomePage] preparePhoto failed:', err)
+      setNavError(msg)
+      setPhotoReady(false)
     } finally {
-      setStarting(false)
+      setPhotoPreparing(false)
     }
   }
 
-  async function startPreview() {
+  function handlePhotoChange(file: File | null) {
+    setBodyPhoto(file)
+    setNavError(null)
+    if (!file) {
+      clearPendingBodyPhoto()
+      setPhotoReady(false)
+      setPhotoPreparing(false)
+      return
+    }
+    void preparePhoto(file)
+  }
+
+  async function continueToQuestions() {
+    if (navLock.current || navigating) {
+      log('continue blocked — already navigating')
+      return
+    }
     if (!bodyPhoto) {
       scrollToUpload()
       return
     }
-    setStarting(true)
+
+    navLock.current = true
+    setNavigating(true)
+    setNavError(null)
+    log('continueToQuestions click')
+
     try {
-      await goToFlow(bodyPhoto)
-    } finally {
-      setStarting(false)
+      if (!photoReady || !hasPendingBodyPhoto()) {
+        log('photo not ready yet, preparing…')
+        await storePendingBodyPhoto(bodyPhoto)
+        setPhotoReady(true)
+      }
+
+      try {
+        sessionStorage.removeItem(FLOW_RESULT_KEY('new_to_tattoos'))
+      } catch {}
+
+      log('router.push →', FLOW_PATH)
+      await router.push(FLOW_PATH)
+
+      // Hard fallback if client router stalls (common on slow mobile / HMR)
+      window.setTimeout(() => {
+        if (window.location.pathname === '/' || window.location.pathname === '') {
+          log('router.push stalled — hard redirect')
+          window.location.assign(FLOW_PATH)
+        }
+      }, 600)
+    } catch (err) {
+      navLock.current = false
+      setNavigating(false)
+      const msg = err instanceof Error ? err.message : 'Navigation failed'
+      console.error('[HomePage] continueToQuestions failed:', err)
+      setNavError(msg)
     }
+    // Do NOT setNavigating(false) on success — stay in loading state until page unmounts
   }
 
-  const ctaLabel = bodyPhoto ? 'Continue to questions' : 'Start my tattoo preview'
+  const canContinue = Boolean(bodyPhoto) && photoReady && !photoPreparing && !navigating
+  const continueLabel = photoPreparing
+    ? 'Preparing photo…'
+    : navigating
+    ? 'Opening questions…'
+    : 'Continue to questions'
 
   return (
     <PageShell className="min-h-screen bg-ink-950 text-ink-100">
@@ -132,7 +158,6 @@ export function HomePage() {
       )}
 
       <div className="w-full max-w-2xl mx-auto px-4 sm:px-5">
-        {/* Hero */}
         <section className="pt-7 sm:pt-10 pb-4 text-center">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-[11px] sm:text-xs font-bold tracking-wide text-accent">
             <Sparkles className="w-3.5 h-3.5" /> 1 FREE PREVIEW · NO CARD NEEDED
@@ -152,9 +177,7 @@ export function HomePage() {
             </p>
 
             <div className="w-full flex justify-center pt-1">
-              {bodyPhoto ? (
-                <PulsatingCta onClick={startPreview} loading={starting} label={ctaLabel} />
-              ) : (
+              {!bodyPhoto ? (
                 <a
                   href="#upload"
                   onClick={(e) => {
@@ -163,9 +186,20 @@ export function HomePage() {
                   }}
                   className="inline-flex items-center justify-center gap-2.5 rounded-full bg-accent px-8 py-4 text-ink-950 font-bold text-base hover:bg-accent/90 active:scale-[0.97] transition shadow-lg shadow-accent/30 animate-cta-pulse cursor-pointer touch-manipulation whitespace-nowrap"
                 >
-                  {ctaLabel}
+                  Start my tattoo preview
                   <ArrowRight className="w-5 h-5" />
                 </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={continueToQuestions}
+                  disabled={!canContinue}
+                  className="inline-flex items-center justify-center gap-2.5 rounded-full bg-accent px-8 py-4 text-ink-950 font-bold text-base hover:bg-accent/90 active:scale-[0.97] transition shadow-lg shadow-accent/30 animate-cta-pulse touch-manipulation disabled:opacity-60 disabled:animate-none whitespace-nowrap"
+                >
+                  {(photoPreparing || navigating) && <Loader2 className="w-5 h-5 animate-spin" />}
+                  {continueLabel}
+                  {!photoPreparing && !navigating && <ArrowRight className="w-5 h-5" />}
+                </button>
               )}
             </div>
 
@@ -176,7 +210,6 @@ export function HomePage() {
           </div>
         </section>
 
-        {/* Before/after — right under hero */}
         <section className="pb-5">
           <p className="text-accent text-[10px] font-bold tracking-wider uppercase mb-2 text-center">
             Real before &amp; after
@@ -195,7 +228,6 @@ export function HomePage() {
           </div>
         </section>
 
-        {/* Upload */}
         <section className="pb-6">
           <div
             id="upload"
@@ -208,16 +240,38 @@ export function HomePage() {
               value={bodyPhoto}
               onChange={handlePhotoChange}
               compact
-              hint="Pick a photo — we take you straight to the questions."
+              hint="Pick a photo — wait for ✓ Ready, then tap Continue."
             />
-            {starting && (
-              <p className="text-xs text-accent mt-2 flex items-center gap-1.5 justify-center">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Taking you to questions…
+
+            {photoPreparing && (
+              <p className="text-xs text-ink-100/50 mt-2 flex items-center gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" /> Compressing photo…
               </p>
+            )}
+            {photoReady && !photoPreparing && bodyPhoto && (
+              <p className="text-xs text-accent mt-2 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Photo ready — tap Continue when you&apos;re set.
+              </p>
+            )}
+
+            {bodyPhoto && (
+              <button
+                type="button"
+                onClick={continueToQuestions}
+                disabled={!canContinue}
+                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3.5 text-ink-950 font-bold text-sm shadow-lg shadow-accent/25 touch-manipulation disabled:opacity-60 disabled:shadow-none"
+              >
+                {(photoPreparing || navigating) && <Loader2 className="w-4 h-4 animate-spin" />}
+                {continueLabel}
+                {!photoPreparing && !navigating && <ArrowRight className="w-4 h-4" />}
+              </button>
+            )}
+
+            {navError && (
+              <p className="text-xs text-red-400/90 mt-2">{navError}</p>
             )}
           </div>
 
-          {/* Trust badges — card style */}
           <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2">
             {TRUST.map((b) => (
               <div
