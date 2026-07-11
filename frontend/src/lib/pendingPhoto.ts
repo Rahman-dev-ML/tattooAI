@@ -7,6 +7,10 @@ function log(...args: unknown[]) {
 
 export const FLOW_RESULT_KEY = (flowId: string) => `tattoo-result-${flowId}`
 
+/** In-memory handoff — survives React Strict Mode double-mount. NOT cleared on read. */
+let handoffFile: File | null = null
+let handoffKey: string | null = null
+
 function fileKey(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`
 }
@@ -83,27 +87,47 @@ function dataUrlToFile(
 }
 
 export function hasPendingBodyPhoto(): boolean {
+  if (handoffFile) return true
   if (typeof window === 'undefined') return false
   return sessionStorage.getItem(KEY) !== null
 }
 
-let storeInflight: Promise<void> | null = null
-let storedFileKey: string | null = null
+/** Read handoff without clearing — safe for multiple React mounts. */
+export function getHandoffBodyPhoto(): File | null {
+  if (handoffFile) {
+    log('getHandoff (memory)', handoffFile.name)
+    return handoffFile
+  }
+  return null
+}
 
-/** Compress + save to sessionStorage. Dedupes concurrent calls for the same file. */
+/** Call after generate succeeds or user starts over. */
+export function clearHandoffBodyPhoto(): void {
+  handoffFile = null
+  handoffKey = null
+  if (typeof window !== 'undefined') {
+    sessionStorage.removeItem(KEY)
+  }
+  log('handoff cleared')
+}
+
+let storeInflight: Promise<void> | null = null
+
+/**
+ * Store photo for homepage → flow handoff.
+ * Sets in-memory handoff IMMEDIATELY; sessionStorage is async backup for page reload.
+ */
 export async function storePendingBodyPhoto(file: File): Promise<void> {
   const key = fileKey(file)
-  if (storedFileKey === key && hasPendingBodyPhoto()) {
-    log('already stored for', key)
-    return
-  }
-  if (storeInflight && storedFileKey === key) {
-    log('awaiting in-flight store for', key)
+
+  // Always update memory handoff right away (survives navigation + Strict Mode)
+  handoffFile = file
+  handoffKey = key
+  log('handoff set (memory)', key, `${(file.size / 1024).toFixed(0)}KB`)
+
+  if (storeInflight && handoffKey === key) {
     return storeInflight
   }
-
-  storedFileKey = key
-  log('storing photo…', key, `${(file.size / 1024).toFixed(0)}KB`)
 
   storeInflight = (async () => {
     const dataUrl = await fileToStorableDataUrl(file)
@@ -117,11 +141,10 @@ export async function storePendingBodyPhoto(file: File): Promise<void> {
           lastModified: file.lastModified,
         })
       )
-      log('stored OK', `${(dataUrl.length / 1024).toFixed(0)}KB in sessionStorage`)
+      log('sessionStorage backup OK', `${(dataUrl.length / 1024).toFixed(0)}KB`)
     } catch (err) {
-      storedFileKey = null
-      console.error('[pendingPhoto] sessionStorage.setItem failed (quota?):', err)
-      throw new Error('Photo too large to save. Try a smaller image or different photo.')
+      // Memory handoff still works — sessionStorage is only a reload fallback
+      console.warn('[pendingPhoto] sessionStorage backup failed (memory handoff still OK):', err)
     }
   })().finally(() => {
     storeInflight = null
@@ -131,45 +154,41 @@ export async function storePendingBodyPhoto(file: File): Promise<void> {
 }
 
 export function clearPendingBodyPhoto(): void {
-  if (typeof window === 'undefined') return
-  sessionStorage.removeItem(KEY)
-  storedFileKey = null
-  log('cleared pending photo')
+  clearHandoffBodyPhoto()
 }
 
-let consumeInflight: Promise<File | null> | null = null
-
-/** Read pending homepage photo once. Removes from storage only after successful decode. */
-export async function consumePendingBodyPhoto(): Promise<File | null> {
+/** Fallback: restore from sessionStorage if memory handoff is empty (page reload). */
+export async function restorePendingBodyPhotoFromStorage(): Promise<File | null> {
   if (typeof window === 'undefined') return null
-  if (consumeInflight) return consumeInflight
+  if (handoffFile) return handoffFile
 
-  consumeInflight = (async () => {
-    const raw = sessionStorage.getItem(KEY)
-    if (!raw) {
-      log('consume: nothing in sessionStorage')
-      return null
+  const raw = sessionStorage.getItem(KEY)
+  if (!raw) {
+    log('storage restore: nothing found')
+    return null
+  }
+
+  try {
+    const { dataUrl, name, type, lastModified } = JSON.parse(raw) as {
+      dataUrl: string
+      name: string
+      type: string
+      lastModified: number
     }
+    const file = dataUrlToFile(dataUrl, name, type, lastModified)
+    handoffFile = file
+    handoffKey = fileKey(file)
+    log('storage restore OK', name, `${(file.size / 1024).toFixed(0)}KB`)
+    return file
+  } catch (err) {
+    console.error('[pendingPhoto] storage restore failed:', err)
+    return null
+  }
+}
 
-    try {
-      const { dataUrl, name, type, lastModified } = JSON.parse(raw) as {
-        dataUrl: string
-        name: string
-        type: string
-        lastModified: number
-      }
-      const file = dataUrlToFile(dataUrl, name, type, lastModified)
-      sessionStorage.removeItem(KEY)
-      storedFileKey = null
-      log('consume OK', name, `${(file.size / 1024).toFixed(0)}KB`)
-      return file
-    } catch (err) {
-      console.error('[pendingPhoto] consume failed:', err)
-      return null
-    }
-  })().finally(() => {
-    consumeInflight = null
-  })
-
-  return consumeInflight
+/** @deprecated Use getHandoffBodyPhoto — kept for any legacy callers */
+export async function consumePendingBodyPhoto(): Promise<File | null> {
+  const mem = getHandoffBodyPhoto()
+  if (mem) return mem
+  return restorePendingBodyPhotoFromStorage()
 }

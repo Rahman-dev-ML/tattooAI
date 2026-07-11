@@ -64,13 +64,14 @@ export function HomePage() {
 
   async function preparePhoto(file: File) {
     setPhotoPreparing(true)
-    setPhotoReady(false)
     setNavError(null)
     log('preparePhoto start', file.name)
+    // storePendingBodyPhoto sets in-memory handoff synchronously before compress
+    const storePromise = storePendingBodyPhoto(file)
+    setPhotoReady(true)
     try {
-      await storePendingBodyPhoto(file)
-      setPhotoReady(true)
-      log('preparePhoto done')
+      await storePromise
+      log('preparePhoto backup done')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Could not prepare photo'
       console.error('[HomePage] preparePhoto failed:', err)
@@ -122,13 +123,13 @@ export function HomePage() {
       log('router.push →', FLOW_PATH)
       await router.push(FLOW_PATH)
 
-      // Hard fallback if client router stalls (common on slow mobile / HMR)
+      // Last resort only — full reload clears in-memory handoff (sessionStorage backup must exist)
       window.setTimeout(() => {
         if (window.location.pathname === '/' || window.location.pathname === '') {
-          log('router.push stalled — hard redirect')
+          log('router.push stalled — hard redirect (requires sessionStorage backup)')
           window.location.assign(FLOW_PATH)
         }
-      }, 600)
+      }, 2500)
     } catch (err) {
       navLock.current = false
       setNavigating(false)
@@ -139,7 +140,7 @@ export function HomePage() {
     // Do NOT setNavigating(false) on success — stay in loading state until page unmounts
   }
 
-  const canContinue = Boolean(bodyPhoto) && photoReady && !photoPreparing && !navigating
+  const canContinue = Boolean(bodyPhoto) && hasPendingBodyPhoto() && !navigating
   const continueLabel = photoPreparing
     ? 'Preparing photo…'
     : navigating

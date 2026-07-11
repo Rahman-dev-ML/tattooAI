@@ -1,6 +1,6 @@
 'use client'
 
-import { useId } from 'react'
+import { useEffect, useId, useMemo } from 'react'
 import type React from 'react'
 import { Camera, ImageIcon, X } from 'lucide-react'
 
@@ -16,6 +16,17 @@ export function PhotoUploader({ value, onChange, label, hint, compact }: PhotoUp
   const galleryId = useId()
   const cameraId = useId()
 
+  const previewUrl = useMemo(
+    () => (value ? URL.createObjectURL(value) : ''),
+    [value]
+  )
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    }
+  }, [previewUrl])
+
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     onChange(e.target.files?.[0] ?? null)
     e.target.value = ''
@@ -28,7 +39,7 @@ export function PhotoUploader({ value, onChange, label, hint, compact }: PhotoUp
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={URL.createObjectURL(value)}
+            src={previewUrl}
             alt="Selected"
             className={`rounded-xl object-cover border border-border shrink-0 ${compact ? 'w-12 h-12' : 'w-16 h-16'}`}
           />

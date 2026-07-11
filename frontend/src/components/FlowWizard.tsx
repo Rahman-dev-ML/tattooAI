@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import type { FlowAnswers, FlowId, GenerateResponse } from '@/lib/types'
@@ -10,7 +10,12 @@ import { ResultScreen } from '@/components/ResultScreen'
 import { ScarMarker, type ScarMark } from '@/components/ScarMarker'
 import { PaymentScreen } from '@/components/PaymentScreen'
 import { PhotoUploader } from '@/components/PhotoUploader'
-import { consumePendingBodyPhoto, hasPendingBodyPhoto } from '@/lib/pendingPhoto'
+import {
+  getHandoffBodyPhoto,
+  hasPendingBodyPhoto,
+  restorePendingBodyPhotoFromStorage,
+  clearHandoffBodyPhoto,
+} from '@/lib/pendingPhoto'
 
 const LOG = process.env.NODE_ENV === 'development'
 function log(...args: unknown[]) {
@@ -36,6 +41,7 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
   const [credits, setCredits] = useState<number | null>(null)
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string>('')
   const [photoRestoring, setPhotoRestoring] = useState(() => hasPendingBodyPhoto())
+  const photoRestoreDone = useRef(false)
 
   const SESSION_KEY = `tattoo-result-${flowId}`
 
@@ -65,25 +71,31 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
     initDeviceId().then(() => checkCredits().then(setCredits))
   }, [])
 
-  // Restore body photo uploaded on the homepage
+  // Restore body photo — memory handoff first (never destructively consumed)
   useEffect(() => {
-    if (config.uploadsInStepsOnly) return
-    let cancelled = false
-    log('consume pending photo…')
-    consumePendingBodyPhoto().then((pending) => {
-      if (cancelled) return
+    if (config.uploadsInStepsOnly || photoRestoreDone.current) return
+    photoRestoreDone.current = true
+
+    const fromMemory = getHandoffBodyPhoto()
+    if (fromMemory) {
+      log('photo from memory handoff', fromMemory.name)
+      setFile(fromMemory)
+      setGroupIndex(0)
+      setPhotoRestoring(false)
+      return
+    }
+
+    log('no memory handoff — trying sessionStorage backup')
+    restorePendingBodyPhotoFromStorage().then((pending) => {
       if (pending) {
-        log('photo restored OK', pending.name)
+        log('photo from sessionStorage backup', pending.name)
         setFile(pending)
         setGroupIndex(0)
       } else {
-        log('no pending photo found')
+        log('no photo found anywhere')
       }
       setPhotoRestoring(false)
     })
-    return () => {
-      cancelled = true
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -359,6 +371,7 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
         }
         onBack={() => {
             try { sessionStorage.removeItem(SESSION_KEY) } catch {}
+            clearHandoffBodyPhoto()
             setResult(null)
           }}
         onAppendConcepts={(more) => {
