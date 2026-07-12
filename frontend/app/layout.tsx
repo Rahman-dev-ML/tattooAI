@@ -28,7 +28,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${dmSans.variable} ${crimson.variable}`}>
-      <body className="font-sans">
+      <body className="font-sans" suppressHydrationWarning>
         {children}
         <Analytics />
 

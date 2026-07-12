@@ -40,7 +40,7 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
   const [showPaywall, setShowPaywall] = useState(false)
   const [credits, setCredits] = useState<number | null>(null)
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string>('')
-  const [photoRestoring, setPhotoRestoring] = useState(() => hasPendingBodyPhoto())
+  const [photoRestoring, setPhotoRestoring] = useState(false)
   const photoRestoreDone = useRef(false)
 
   const SESSION_KEY = `tattoo-result-${flowId}`
@@ -81,11 +81,11 @@ export function FlowWizard({ flowId }: { flowId: FlowId }) {
       log('photo from memory handoff', fromMemory.name)
       setFile(fromMemory)
       setGroupIndex(0)
-      setPhotoRestoring(false)
       return
     }
 
     log('no memory handoff — trying sessionStorage backup')
+    setPhotoRestoring(true)
     restorePendingBodyPhotoFromStorage().then((pending) => {
       if (pending) {
         log('photo from sessionStorage backup', pending.name)

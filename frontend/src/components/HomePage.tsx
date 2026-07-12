@@ -140,7 +140,7 @@ export function HomePage() {
     // Do NOT setNavigating(false) on success — stay in loading state until page unmounts
   }
 
-  const canContinue = Boolean(bodyPhoto) && hasPendingBodyPhoto() && !navigating
+  const canContinue = Boolean(bodyPhoto) && photoReady && !photoPreparing && !navigating
   const continueLabel = photoPreparing
     ? 'Preparing photo…'
     : navigating
